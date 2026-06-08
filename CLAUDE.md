@@ -102,7 +102,7 @@ Supported export formats:
 
 ## Current Validation
 
-- Unit suite baseline: 266 passed, 91% coverage, `ruff check .` clean.
+- Unit suite baseline: 301 passed, `ruff check .` clean.
 - FastAPI Phase 1 is complete: health, books, world, characters, volumes, chapters, truth, export, providers, daemon, and SSE routes are present in OpenAPI; `storyforge3 serve` startup was smoke-tested.
 - Active provider validation passed for `Codex 直连中转` / `gpt-5.5`.
 - Full production pipeline passes against `Codex 直连中转`: plan -> draft(chunked) -> normalize -> audit -> revise(patch) -> truth_extract -> export.
@@ -110,6 +110,7 @@ Supported export formats:
 - Latest 3-chapter E2E run: `books/e2e-multi-20260608-180847`, `success=True`, `3/3 exported`, `failed_chapters=0`, and cross-chapter truth retrieval passed.
 - E2E chapter details: chapter 1 = 2255 chars, audit passed, 1 patch revision, 45 truth entries; chapter 2 = 2706 chars, audit passed, 0 revisions, 74 truth entries; chapter 3 = 2940 chars, audit passed, 0 revisions, 52 truth entries.
 - Long-generation resilience uses 2s/4s/8s retry backoff, extra jitter for 504, 5 total attempts for 502/503/504, and 300s draft/revise timeout.
+- Phase 4 complete (301 tests): atomic writes (`storage.py` temp+rename), failure diagnostics (`_persist_diagnostics`), context source tracking (`ContextBlock`/`ContextPackage` with priority-based budget trimming), API integration tests (15 endpoints across 6 test files with `conftest_api.py` infrastructure).
 
 ## Known Issues
 

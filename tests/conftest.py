@@ -7,6 +7,8 @@ import pytest
 
 from storyforge3.config import StoryForge3Config
 
+pytest_plugins = ("tests.conftest_api",)
+
 
 @pytest.fixture
 def config(tmp_path: Path) -> StoryForge3Config:

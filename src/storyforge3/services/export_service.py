@@ -51,6 +51,8 @@ class ExportService:
 
     async def export_book(self, book_id: str, fmt: str = "tomato_txt", *, approved_only: bool = True) -> Path:
         fmt = self._normalize_format(fmt)
+        if not self.paths.book_meta(book_id).is_file():
+            raise FileNotFoundError(f"book not found: {book_id}")
         chapters = self._load_chapters(book_id, approved_only=approved_only)
         title = self._book_title(book_id)
         if fmt in {"tomato_txt", "tomato", "txt"}:

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from storyforge3.api.deps import get_export_service, get_paths
-from storyforge3.api.errors import ApiError
+from storyforge3.api.errors import ApiError, book_not_found, invalid_parameter
 from storyforge3.services.export_service import ExportService
 from storyforge3.storage import StoragePaths
 
@@ -25,7 +25,12 @@ async def export_book(
     req: ExportBookRequest,
     service: ExportService = Depends(get_export_service),
 ):
-    path = await service.export_book(book_id, req.fmt, approved_only=req.approved_only)
+    try:
+        path = await service.export_book(book_id, req.fmt, approved_only=req.approved_only)
+    except FileNotFoundError as exc:
+        raise book_not_found(book_id) from exc
+    except ValueError as exc:
+        raise invalid_parameter(str(exc)) from exc
     return FileResponse(path, filename=path.name, media_type=_media_type(path))
 
 

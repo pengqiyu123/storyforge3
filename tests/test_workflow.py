@@ -310,6 +310,44 @@ def test_workflow_draft_payload_uses_retrieved_truth(config, book_workspace: Pat
     assert "fact_assertions" not in draft_payload["relevant_truth"]
 
 
+def test_workflow_draft_payload_includes_context_source_summary(config, book_workspace: Path) -> None:
+    write_world_and_characters(book_workspace)
+    db = TruthDatabase(Path(config.books_dir) / "truth.db")
+    db.insert_entries(
+        "lurenjia",
+        7,
+        [
+            TruthEntry(
+                id=None,
+                book_id="lurenjia",
+                chapter_no=7,
+                category="plot_point",
+                content="许青发现林默的存在感残痕。",
+                importance=0.9,
+                related_chapters=(),
+                created_at="2026-06-02T00:00:00+00:00",
+            )
+        ],
+    )
+    client = PayloadWorkflowMockClient(valid_chapter_text(1000), valid_chapter_text(1000))
+    workflow = ChapterWorkflow(config, client=client)
+
+    result = run(workflow.run("lurenjia", 8, human_confirm=lambda _: True))
+
+    assert result.status == ChapterStatus.EXPORTED
+    draft_payload = client.calls[1][1]
+    sources = {item["source"]: item for item in draft_payload["context_sources"]}
+    assert "chapter_goal" in sources
+    assert "previous_chapter_tail" in sources
+    assert "book_context" in sources
+    assert "world_rules" in sources
+    assert "character_profiles" in sources
+    assert "truth_retrieval" in sources
+    assert sources["chapter_goal"]["priority"] == "CRITICAL"
+    assert sources["truth_retrieval"]["priority"] == "HIGH"
+    assert "[chapter_goal]\n第8章计划" in draft_payload["context_prompt"]
+
+
 def test_workflow_revises_and_reaudits_blocking_audit_before_export(config, book_workspace: Path) -> None:
     client = RevisionLoopMockClient("短稿", valid_chapter_text(1000))
     workflow = ChapterWorkflow(config, client=client)

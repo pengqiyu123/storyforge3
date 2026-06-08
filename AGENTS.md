@@ -528,7 +528,7 @@ Thumbs.db
 ### 单元测试
 
 - 框架：pytest 或 unittest
-- 当前基线：266 passed，91% coverage，`ruff check .` clean
+- 当前基线：301 passed，91% coverage，`ruff check .` clean
 - 覆盖率目标：≥ 90%
 - 外部依赖（CCSwitch）用 mock，不依赖真实 LLM 调用
 

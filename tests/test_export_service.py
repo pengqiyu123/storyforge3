@@ -137,6 +137,14 @@ def test_export_service_rejects_unknown_format(config: StoryForge3Config, export
         run(service.export_book("lurenjia", "docx"))
 
 
+def test_export_book_rejects_missing_book(config: StoryForge3Config) -> None:
+    paths = StoragePaths(Path(config.books_dir))
+    service = ExportService(BookStorage(paths.books_root), paths)
+
+    with pytest.raises(FileNotFoundError, match="book not found"):
+        run(service.export_book("missing-book", "md"))
+
+
 def test_chapter_service_routes_new_export_formats(config: StoryForge3Config, export_workspace) -> None:
     storage, paths, _root = export_workspace
     service = ChapterService(config, storage=storage, paths=paths)

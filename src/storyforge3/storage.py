@@ -58,8 +58,7 @@ class BookStorage:
         return json.loads(path.read_text(encoding="utf-8"))
 
     def write_json(self, path: Path, data: dict) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
 
     def read_text(self, path: Path) -> str | None:
         if not path.exists():
@@ -67,8 +66,21 @@ class BookStorage:
         return path.read_text(encoding="utf-8")
 
     def write_text(self, path: Path, text: str) -> None:
+        self._atomic_write_text(path, text)
+
+    @staticmethod
+    def _atomic_write_text(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text, encoding="utf-8")
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+        except BaseException:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def ensure_dir(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)

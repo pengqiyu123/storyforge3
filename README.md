@@ -21,8 +21,9 @@ StoryForge3 是面向中文网文生产的全流程创作引擎：从空白页�
 最新本地验证：
 
 - `ruff check .` clean
-- `pytest tests/ -q`：266 passed，1 个非阻塞 deprecation warning
+- `pytest tests/ -q`：301 passed，1 个非阻塞 deprecation warning
 - 覆盖率：约 91%
+- Phase 4：原子写入、失败诊断持久化、Context source tracking、API 集成测试覆盖已完成
 - 多章节 E2E：`books/e2e-multi-20260608-180847`
   - Chapter 1：2255 字，audit passed，1 次 patch revision，45 条 truth
   - Chapter 2：2706 字，audit passed，0 次 revision，74 条 truth
@@ -72,6 +73,7 @@ storyforge3/
 ├── src/storyforge3/
 │   ├── api/              # FastAPI routes + SSE
 │   ├── audit/            # 机械规则、revision mode、patch revise
+│   ├── context/          # ContextBlock / ContextPackage 来源追踪
 │   ├── export/           # Tomato TXT / Markdown / EPUB / Qidian TXT
 │   ├── llm/              # Provider 配置、路由、重试、分块生成
 │   ├── prompts/          # PromptRegistry 版本化模板

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from storyforge3.audit import thresholds as T
@@ -11,6 +11,7 @@ from storyforge3.audit.revision_patch import apply_patches, build_patch_targets,
 from storyforge3.audit.revision_modes import RevisionModeRecommender, get_mode_config
 from storyforge3.audit.runner import AuditRunner
 from storyforge3.config import StoryForge3Config
+from storyforge3.context import ContextBlock, ContextPackage, ContextPriority
 from storyforge3.export.formatter import PlatformFormatter
 from storyforge3.llm.chunked_generator import ChunkedGenerator
 from storyforge3.llm.factory import create_llm_service
@@ -144,7 +145,14 @@ class ChapterWorkflow:
             prompt = f"{prompt}\n\n{style_prompt}"
         prompt_version = f"{template.prompt_id}:v{template.version}"
         previous_chapter_tail = ctx.previous_chapters[-1][-1800:] if ctx.previous_chapters else ""
-        truth_context = "\n".join((plan, ctx.context_text, previous_chapter_tail))
+        truth_text = self.truth_retriever.retrieve_for_prompt(
+            ctx.book_id,
+            chapter_no,
+            "\n".join((plan, ctx.context_text, previous_chapter_tail)),
+            max_chars=4000,
+        )
+        context_package = self._draft_context_package(plan, ctx, previous_chapter_tail, truth_text)
+        context_package.trim_to_budget()
         payload = {
             "book_id": ctx.book_id,
             "chapter_no": chapter_no,
@@ -152,12 +160,9 @@ class ChapterWorkflow:
             "previous_chapter_tail": previous_chapter_tail,
             "world": ctx.world,
             "characters": ctx.characters,
-            "relevant_truth": self.truth_retriever.retrieve_for_prompt(
-                ctx.book_id,
-                chapter_no,
-                truth_context,
-                max_chars=4000,
-            ),
+            "relevant_truth": truth_text,
+            "context_sources": context_package.sources_summary(),
+            "context_prompt": context_package.to_prompt_text(),
             "plan": plan,
             "task": "根据计划直接输出下一章正文。",
         }
@@ -175,6 +180,29 @@ class ChapterWorkflow:
                 },
             )
         return await self.client.generate_text("draft", prompt, payload, prompt_version=prompt_version)
+
+    def _draft_context_package(self, plan: str, ctx: BookContext, previous_chapter_tail: str, truth_text: str) -> ContextPackage:
+        package = ContextPackage(task="draft", budget_chars=12000)
+        package.add(ContextBlock("chapter_goal", ContextPriority.CRITICAL, plan, {"book_id": ctx.book_id}))
+        if previous_chapter_tail:
+            package.add(ContextBlock("previous_chapter_tail", ContextPriority.CRITICAL, previous_chapter_tail, {"chars_from_tail": 1800}))
+        if ctx.context_text:
+            package.add(ContextBlock("book_context", ContextPriority.MEDIUM, ctx.context_text, {"book_id": ctx.book_id}))
+        if ctx.world:
+            world_text = "\n".join(f"{key}: {value}" for key, value in ctx.world.items() if value)
+            if world_text:
+                package.add(ContextBlock("world_rules", ContextPriority.HIGH, world_text, {"fields": tuple(ctx.world.keys())}))
+        if ctx.characters:
+            characters_text = "\n".join(
+                f"{character['name']}({character['role']}): {character['profile']}"
+                for character in ctx.characters
+                if character.get("name")
+            )
+            if characters_text:
+                package.add(ContextBlock("character_profiles", ContextPriority.HIGH, characters_text, {"count": len(ctx.characters)}))
+        if truth_text:
+            package.add(ContextBlock("truth_retrieval", ContextPriority.HIGH, truth_text, {"max_chars": 4000}))
+        return package
 
     async def step_revise(self, ctx: BookContext, chapter_no: int, text: str, audit: AuditResult, revision_round: int) -> str:
         failed = self.revision_recommender.failed_results(audit.rule_results)
@@ -338,7 +366,43 @@ class ChapterWorkflow:
         llm_calls: list[LLMCallRecord],
     ) -> ChapterResult:
         self.state_machine.force_needs_review(book_id, chapter_no, error)
+        self._persist_diagnostics(book_id, chapter_no, text, audit, error)
         return ChapterResult(book_id, chapter_no, ChapterStatus.NEEDS_REVIEW, title, text, audit=audit, truth=truth, llm_calls=tuple(llm_calls), error=error)
+
+    def _persist_diagnostics(
+        self,
+        book_id: str,
+        chapter_no: int,
+        text: str,
+        audit: AuditResult | None,
+        error: str,
+    ) -> None:
+        """Write failure artifacts for post-mortem analysis."""
+        diag_dir = Path(self.config.books_dir) / book_id / "diagnostics"
+        diag_dir.mkdir(parents=True, exist_ok=True)
+        prefix = diag_dir / f"chapter_{chapter_no}"
+
+        if text:
+            self._atomic_write_text(prefix.with_name(f"{prefix.name}_last_draft.md"), text)
+        if audit is not None:
+            self._atomic_write_text(
+                prefix.with_name(f"{prefix.name}_audit.json"),
+                json.dumps(asdict(audit), ensure_ascii=False, indent=2, default=str),
+            )
+        self._atomic_write_text(prefix.with_name(f"{prefix.name}_error.txt"), error)
+
+    @staticmethod
+    def _atomic_write_text(path: Path, text: str) -> None:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        try:
+            tmp.write_text(text, encoding="utf-8")
+            tmp.replace(path)
+        except BaseException:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+            raise
 
     def _append_last_call(self, records: list[LLMCallRecord]) -> None:
         call = getattr(self.client, "last_call", None)
