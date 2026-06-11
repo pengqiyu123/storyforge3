@@ -36,6 +36,15 @@ class RuleCategory(str, Enum):
     META = "meta"
 
 
+class FanficMode(str, Enum):
+    """Fanfiction writing mode."""
+
+    CANON = "canon"
+    AU = "au"
+    OOC = "ooc"
+    CP = "cp"
+
+
 @dataclass(frozen=True)
 class RuleResult:
     rule_id: str
@@ -69,6 +78,29 @@ class TruthData:
 
 
 @dataclass(frozen=True)
+class RevisionDiffBlock:
+    kind: str
+    before_text: str = ""
+    after_text: str = ""
+
+
+@dataclass(frozen=True)
+class RevisionDiffSummary:
+    changed_blocks: int
+    added_blocks: int
+    removed_blocks: int
+    before_chars: int
+    after_chars: int
+
+
+@dataclass(frozen=True)
+class RevisionDiff:
+    unit: str
+    summary: RevisionDiffSummary
+    blocks: tuple[RevisionDiffBlock, ...]
+
+
+@dataclass(frozen=True)
 class LLMCallRecord:
     """Audit record for one LLM call."""
 
@@ -92,6 +124,7 @@ class ChapterResult:
     title: str
     text: str
     audit: AuditResult | None = None
+    revision_diff: RevisionDiff | None = None
     truth: TruthData | None = None
     llm_calls: tuple[LLMCallRecord, ...] = ()
     error: str | None = None
@@ -119,6 +152,7 @@ class BookConfig:
     target_chapters: int
     chapter_word_count: int  # target words per chapter
     language: str = "zh"
+    fanfic_mode: str = ""
 
 
 @dataclass(frozen=True)
@@ -137,6 +171,87 @@ class BookMeta:
     created_at: str = ""
     updated_at: str = ""
     style_fingerprint: dict | None = None
+    fanfic_mode: str = ""
+
+
+@dataclass(frozen=True)
+class FanficCanon:
+    """Structured canon extracted from source material for fanfiction writing."""
+
+    book_id: str
+    source_name: str
+    mode: FanficMode
+    world_rules: str
+    character_profiles: str
+    key_events: str
+    power_system: str
+    writing_style: str
+    full_document: str
+    generated_at: str = ""
+
+
+class ShortStoryStatus(str, Enum):
+    """Short story lifecycle state."""
+
+    EMPTY = "empty"
+    PLANNED = "planned"
+    DRAFTED = "drafted"
+    AUDITED = "audited"
+    REVISED = "revised"
+    EXPORTED = "exported"
+
+
+@dataclass(frozen=True)
+class ShortStoryConfig:
+    """Parameters for creating a short story."""
+
+    title: str
+    genre: str
+    target_chars: int = 10_000
+    premise: str = ""
+    style: str = ""
+
+
+@dataclass(frozen=True)
+class ShortStoryMeta:
+    """Persisted short story metadata."""
+
+    book_id: str
+    title: str
+    genre: str
+    status: ShortStoryStatus
+    target_chars: int
+    premise: str
+    style: str
+    actual_chars: int = 0
+    created_at: str = ""
+    updated_at: str = ""
+
+
+@dataclass(frozen=True)
+class ShortStoryPlan:
+    """Single-piece short story plan."""
+
+    book_id: str
+    premise: str
+    opening: str = ""
+    climax: str = ""
+    ending: str = ""
+    characters: str = ""
+    key_scenes: tuple[str, ...] = ()
+    must_keep: tuple[str, ...] = ()
+    must_avoid: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ShortStoryResult:
+    """Short story pipeline result."""
+
+    book_id: str
+    status: ShortStoryStatus
+    text: str
+    audit: AuditResult | None = None
+    error: str | None = None
 
 
 # ── World building ──────────────────────────────────────────
@@ -215,3 +330,30 @@ class ChapterIntent:
     must_keep: tuple[str, ...] = ()  # 必须保留
     must_avoid: tuple[str, ...] = ()  # 必须避免
     style_emphasis: tuple[str, ...] = ()  # 风格侧重
+
+
+# ── Workspace management ───────────────────────────────────
+
+
+@dataclass(frozen=True)
+class WorkspaceValidation:
+    valid: bool
+    books_dir: str
+    book_count: int
+    issues: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class BackupResult:
+    path: str
+    book_count: int
+    size_bytes: int
+    created_at: str
+
+
+@dataclass(frozen=True)
+class RestoreResult:
+    success: bool
+    book_count: int
+    backup_path: str
+    message: str

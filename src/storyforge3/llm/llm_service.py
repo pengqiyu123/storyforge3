@@ -5,7 +5,7 @@ import json
 import os
 import random
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlencode
@@ -104,7 +104,7 @@ class LLMService:
                 task_name="health",
                 timeout=30,
             )
-        except LLMRouteError:
+        except (LLMRouteError, httpx.HTTPError):
             return False
         self._write_verified_to_provider(self.provider, result)
         return True
@@ -146,6 +146,73 @@ class LLMService:
             if exc.probe_status == "connection_failed":
                 raise ProviderUnavailableError(str(exc)) from exc
             raise LLMProviderError(str(exc)) from exc
+
+    async def generate_text_stream(
+        self,
+        task_name: str,
+        system_prompt: str,
+        user_payload: dict,
+        *,
+        model: str | None = None,
+        timeout: int | None = None,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        """Stream text chunks when the active route supports OpenAI-compatible SSE."""
+        started = time.perf_counter()
+        payload = self._payload(task_name, system_prompt, user_payload, kwargs, model=model)
+        effective_timeout = timeout or self._timeout_for_task(str(task_name))
+        route_pair = self._streaming_provider_route(payload)
+        if route_pair is None:
+            async for text in self._generate_text_as_stream(task_name, system_prompt, user_payload, model=model, timeout=timeout, **kwargs):
+                yield text
+            return
+
+        provider, route = route_pair
+        yielded = False
+        try:
+            async for chunk in self._stream_response(provider, route, payload, timeout=effective_timeout):
+                yielded = True
+                yield chunk
+            self._record_call(
+                task_name,
+                {"model": route.model_id, "usage": {}},
+                started,
+                True,
+                prompt_version=kwargs.get("prompt_version"),
+            )
+        except httpx.TimeoutException as exc:
+            self._record_call(task_name, {}, started, False, error=str(exc), prompt_version=kwargs.get("prompt_version"))
+            raise LLMTimeoutError(f"{task_name}: provider request timed out") from exc
+        except httpx.ConnectError as exc:
+            self._record_call(task_name, {}, started, False, error=str(exc), prompt_version=kwargs.get("prompt_version"))
+            raise ProviderUnavailableError(f"{task_name}: provider unavailable") from exc
+        except LLMRouteError:
+            if yielded:
+                self._record_call(
+                    task_name,
+                    {"model": route.model_id, "usage": {}},
+                    started,
+                    False,
+                    error="stream interrupted",
+                    prompt_version=kwargs.get("prompt_version"),
+                )
+                raise
+            async for text in self._generate_text_as_stream(task_name, system_prompt, user_payload, model=model, timeout=timeout, **kwargs):
+                yield text
+
+    async def _generate_text_as_stream(
+        self,
+        task_name: str,
+        system_prompt: str,
+        user_payload: dict,
+        *,
+        model: str | None = None,
+        timeout: int | None = None,
+        **kwargs,
+    ) -> AsyncIterator[str]:
+        text = await self.generate_text(task_name, system_prompt, user_payload, model=model, timeout=timeout, **kwargs)
+        if text:
+            yield text
 
     async def generate_json(
         self,
@@ -208,7 +275,7 @@ class LLMService:
                 return await self._invoke_route(provider, route, payload, task_name=task_name, timeout=timeout)
             except LLMRouteError as exc:
                 last_error = exc
-                if exc.probe_status == "model_missing" and route.model_id == "default":
+                if exc.probe_status == "model_missing" and route.api_format in OPENAI_FORMATS and not route.model_id:
                     fallback_result = await self._try_model_fallbacks(provider, route, payload, task_name=task_name, timeout=timeout)
                     if fallback_result is not None:
                         return fallback_result
@@ -219,15 +286,16 @@ class LLMService:
         raise last_error or LLMRouteError("request_failed", "未找到可用的请求端点")
 
     async def _invoke_route(self, provider: dict, route: Route, payload: dict, *, task_name: str, timeout: int | None) -> dict:
-        response = await self._post_with_retries(provider, route, payload, timeout=timeout)
-        raw = self._safe_response_json(response, route)
+        request_route = _request_route_for_default_model(route)
+        response = await self._post_with_retries(provider, request_route, payload, timeout=timeout)
+        raw = self._safe_response_json(response, request_route)
         return {
-            "text": self._extract_text(route.api_format, raw),
+            "text": self._extract_text(request_route.api_format, raw),
             "raw": raw,
-            "route": route,
-            "resolved_endpoint": route.endpoint,
-            "resolved_format": route.api_format,
-            "resolved_model": route.model_id,
+            "route": request_route,
+            "resolved_endpoint": request_route.endpoint,
+            "resolved_format": request_route.api_format,
+            "resolved_model": str(raw.get("model") or request_route.model_id),
         }
 
     async def _try_model_fallbacks(
@@ -261,6 +329,53 @@ class LLMService:
         except json.JSONDecodeError:
             return []
         return _rank_model_ids(_extract_model_ids(raw))
+
+    def _streaming_provider_route(self, payload: dict) -> tuple[dict, Route] | None:
+        providers = [self._provider_for_payload(self.provider, payload)]
+        if self.fallback_provider is not None:
+            providers.append(self._provider_for_payload(self.fallback_provider, payload))
+        for provider in providers:
+            for route in _build_route_candidates(provider):
+                request_route = _request_route_for_default_model(route)
+                if request_route.api_format in OPENAI_FORMATS:
+                    return provider, request_route
+        return None
+
+    async def _stream_response(
+        self,
+        provider: dict,
+        route: Route,
+        payload: dict,
+        *,
+        timeout: int | None,
+    ) -> AsyncIterator[str]:
+        body = self._streaming_body_for_route(route, payload)
+        async with self._client(timeout=timeout) as client:
+            async with client.stream(
+                "POST",
+                self._request_url(provider, route),
+                headers=self._headers(provider, route),
+                json=body,
+            ) as response:
+                if response.status_code != 200:
+                    await response.aread()
+                    raise LLMRouteError(
+                        classify_response_error(response),
+                        f"{route.api_format} {route.endpoint}: HTTP {response.status_code}",
+                        route=route,
+                    )
+                buffer = ""
+                async for raw_chunk in response.aiter_text():
+                    buffer += raw_chunk
+                    while "\n\n" in buffer:
+                        event_text, buffer = buffer.split("\n\n", 1)
+                        text = self._extract_stream_delta(route.api_format, event_text)
+                        if text is not None:
+                            yield text
+                if buffer:
+                    text = self._extract_stream_delta(route.api_format, buffer)
+                    if text is not None:
+                        yield text
 
     async def _post_with_retries(self, provider: dict, route: Route, payload: dict, *, timeout: int | None) -> httpx.Response:
         attempts = 4 if route.api_format == "gemini_native" else 5
@@ -384,6 +499,16 @@ class LLMService:
         return body
 
     @staticmethod
+    def _streaming_body_for_route(route: Route, payload: dict) -> dict:
+        body = LLMService._body_for_route(route, payload)
+        if route.api_format == "openai_chat":
+            body["stream"] = True
+            body["stream_options"] = {"include_usage": True}
+        elif route.api_format == "openai_responses":
+            body["stream"] = True
+        return body
+
+    @staticmethod
     def _payload(task_name: str, system_prompt: str, user_payload: dict, options: dict | None, *, model: str | None) -> dict:
         options = options or {}
         body = {
@@ -441,6 +566,33 @@ class LLMService:
                 if isinstance(parts, list) and parts and isinstance(parts[0], dict) and isinstance(parts[0].get("text"), str):
                     return parts[0]["text"]
         raise LLMResponseFormatError("missing output text")
+
+    @staticmethod
+    def _extract_stream_delta(api_format: str, event_text: str) -> str | None:
+        """Extract a text delta from one Server-Sent Event block."""
+        for line in event_text.splitlines():
+            if not line.startswith("data: "):
+                continue
+            data_str = line[6:].strip()
+            if data_str == "[DONE]":
+                return None
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+            if api_format == "openai_chat":
+                choices = data.get("choices")
+                if isinstance(choices, list) and choices:
+                    first = choices[0]
+                    delta = first.get("delta") if isinstance(first, dict) else None
+                    content = delta.get("content") if isinstance(delta, dict) else None
+                    if isinstance(content, str):
+                        return content
+            if api_format == "openai_responses" and data.get("type") == "response.output_text.delta":
+                delta = data.get("delta")
+                if isinstance(delta, str):
+                    return delta
+        return None
 
     async def _retry_sleep(self, attempt: int, *, jitter: float = 0.0) -> None:
         delay = 2.0 * (2**attempt)
@@ -501,7 +653,9 @@ class LLMService:
 
 def _build_route_candidates(provider: dict, prefer_verified: bool = True) -> list[Route]:
     declared_format = _declared_format(provider)
-    model_id = str(provider.get("model_id") or "default")
+    model_id = str(provider.get("model_id") or "").strip()
+    verified_model = str(provider.get("cc_last_verified_model") or "").strip()
+    route_model_id = model_id or verified_model
     formats = _formats_for_provider(provider, declared_format)
     is_full_url = bool(provider.get("cc_is_full_url"))
     routes: list[Route] = []
@@ -510,17 +664,20 @@ def _build_route_candidates(provider: dict, prefer_verified: bool = True) -> lis
             Route(
                 str(provider["cc_last_verified_endpoint"]),
                 str(provider.get("cc_last_verified_format") or declared_format),
-                str(provider.get("cc_last_verified_model") or model_id),
+                verified_model or model_id,
                 True,
             )
         )
     for raw_endpoint in _raw_endpoint_candidates(provider):
         for api_format in formats:
+            endpoint = build_endpoint_url(raw_endpoint, api_format, route_model_id, is_full_url)
+            if not endpoint:
+                continue
             routes.append(
                 Route(
-                    build_endpoint_url(raw_endpoint, api_format, model_id, is_full_url),
+                    endpoint,
                     api_format,
-                    model_id,
+                    route_model_id,
                     False,
                 )
             )
@@ -533,6 +690,8 @@ def build_endpoint_url(raw_url: str, api_format: str, model_id: str, is_full_url
         return base
     base = _strip_terminal_path(_strip_compat_suffix(base))
     if api_format == "gemini_native":
+        if not model_id:
+            return ""
         return f"{base}/v1beta/models/{model_id}:generateContent"
     if base.endswith("/v1"):
         suffix = {
@@ -637,6 +796,12 @@ def _route_endpoint_for_model(route: Route, model_id: str) -> str:
     if not separator:
         return route.endpoint
     return f"{prefix}/models/{model_id}:generateContent{suffix}"
+
+
+def _request_route_for_default_model(route: Route) -> Route:
+    if route.model_id or route.api_format not in OPENAI_FORMATS:
+        return route
+    return Route(route.endpoint, route.api_format, "default", route.verified)
 
 
 def _extract_model_ids(raw: dict) -> list[str]:

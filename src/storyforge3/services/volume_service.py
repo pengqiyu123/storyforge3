@@ -9,8 +9,18 @@ from storyforge3.services.json_text import parse_json_text
 from storyforge3.storage import BookStorage, StoragePaths
 
 
-VOLUME_SYSTEM_PROMPT = "你是中文网文卷纲规划师。请只输出 JSON。"
-VOLUME_TEXT_PROMPT = """你是中文网文卷纲规划师。
+VOLUME_SYSTEM_PROMPT = """你是中文网文卷纲规划师。根据 book_id、volume_count、total_chapters，以及可用的 core_conflict/power_system 规划卷纲。
+输出必须是 JSON object，字段只能包含 volumes。
+卷纲要求：
+- 每卷必须从核心冲突、力量体系或主角处境变化推导，不凭空编新主线。
+- title 要体现本卷的具体矛盾或阶段变化，禁止“觉醒篇”“崛起篇”“巅峰篇”“命运篇”等模板卷名。
+- synopsis 必须回答：这卷结束时主角的处境变了什么。
+- key_scenes 列 3-6 个具体场景，每卷至少一个不可逆事件。
+- rhythm_curve 写具体情绪或剧情目标，不写“高-低-高”这类抽象曲线。
+- 不要提前揭完中后期秘密，保留清晰揭示顺序。
+只输出 JSON，不要解释。"""
+VOLUME_TEXT_PROMPT = f"""{VOLUME_SYSTEM_PROMPT}
+
 请用 ```json ... ``` 输出一个 JSON object，字段必须包含 volumes。
 每个 volume 包含 volume_no, title, chapter_count, synopsis, key_scenes, rhythm_curve。
 不要输出解释。"""
@@ -24,7 +34,12 @@ class VolumeService:
         self.config = config
 
     async def plan(self, book_id: str, volume_count: int, total_chapters: int) -> list[VolumeOutline]:
-        payload = {"book_id": book_id, "volume_count": volume_count, "total_chapters": total_chapters}
+        payload = {
+            "book_id": book_id,
+            "volume_count": volume_count,
+            "total_chapters": total_chapters,
+            **self._world_planning_context(book_id),
+        }
         data = await self._generate_volume_payload(payload)
         volumes = [
             self._load(book_id, item, fallback_no=index + 1, total_chapters=total_chapters, volume_count=volume_count)
@@ -62,13 +77,53 @@ class VolumeService:
             str(data.get("title") or f"第{fallback_no}卷"),
             int(data.get("chapter_count") or default_chapter_count),
             str(data.get("synopsis") or ""),
-            tuple(data.get("key_scenes", ())),
-            tuple(data.get("rhythm_curve", ())),
+            VolumeService._text_items(data.get("key_scenes")),
+            VolumeService._text_items(data.get("rhythm_curve")),
         )
 
     @staticmethod
+    def _text_items(value: object) -> tuple[str, ...]:
+        if value is None:
+            return ()
+        if isinstance(value, str):
+            text = value.strip()
+            return (text,) if text else ()
+        if isinstance(value, list | tuple):
+            return tuple(str(item) for item in value if str(item).strip())
+        return (str(value),)
+
+    @staticmethod
     def _schema() -> dict:
-        return {"type": "object", "required": ["volumes"]}
+        return {
+            "type": "object",
+            "required": ["volumes"],
+            "properties": {
+                "volumes": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["volume_no", "title", "chapter_count", "synopsis"],
+                        "properties": {
+                            "volume_no": {"type": "integer"},
+                            "title": {"type": "string"},
+                            "chapter_count": {"type": "integer"},
+                            "synopsis": {"type": "string"},
+                            "key_scenes": {"type": "array", "items": {"type": "string"}},
+                            "rhythm_curve": {"type": "array", "items": {"type": "string"}},
+                        },
+                    },
+                },
+            },
+        }
+
+    def _world_planning_context(self, book_id: str) -> dict[str, object]:
+        data = self.storage.read_json(self.paths.world_config(book_id)) or {}
+        return {
+            "setting": data.get("setting", ""),
+            "power_system": data.get("power_system", ""),
+            "core_conflict": data.get("core_conflict", ""),
+            "world_rules": data.get("rules", []),
+        }
 
     async def _generate_volume_payload(self, payload: dict) -> dict:
         model = self.config.model_for_task("planner")

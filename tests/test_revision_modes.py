@@ -157,14 +157,12 @@ def test_chapter_service_revise_records_auto_mode(config: StoryForge3Config, boo
     service = ChapterService(config)
     result = run(service.revise("lurenjia", 7))
     assert result.audit is not None
-    assert result.error is not None
-    assert "revision_mode=" in result.error
-    assert "mode_source=auto_recommended" in result.error
+    assert result.revision_diff is None
+    assert result.error == "audit_passed_no_revision_needed"
 
 
 def test_chapter_service_revise_respects_manual_mode(config: StoryForge3Config, book_workspace) -> None:
     service = ChapterService(config)
     result = run(service.revise("lurenjia", 7, mode="polish"))
-    assert result.error is not None
-    assert "revision_mode=polish" in result.error
-    assert "mode_source=manual" in result.error
+    assert result.revision_diff is None
+    assert result.error == "audit_passed_no_revision_needed"

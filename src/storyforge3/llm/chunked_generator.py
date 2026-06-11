@@ -2,36 +2,51 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
+
+from storyforge3.llm.llm_service import LLMProviderError, LLMTimeoutError, ProviderUnavailableError
 
 
 class ChunkedGenerator:
     """Generate long chapter drafts through smaller provider calls."""
 
-    def __init__(self, service: Any, *, chunk_target_chars: int = 500, max_chunks: int = 6) -> None:
+    def __init__(
+        self,
+        service: Any,
+        *,
+        chunk_target_chars: int = 500,
+        max_chunks: int = 6,
+        on_progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> None:
         self.service = service
         self.chunk_target_chars = chunk_target_chars
         self.max_chunks = max_chunks
+        self.on_progress = on_progress
 
     async def generate(self, task_name: str, system_prompt: str, outline: str, context: dict) -> str:
         target_chars = _positive_int(context.get("target_chars"), self.chunk_target_chars)
         chunk_count = max(1, min(self.max_chunks, math.floor((target_chars + self.chunk_target_chars / 2) / self.chunk_target_chars)))
-        plan = await self.service.generate_text(
-            f"{task_name}_chunk_plan",
-            system_prompt,
-            {
-                **_public_context(context),
-                "outline": outline,
-                "target_chars": target_chars,
-                "chunk_count": chunk_count,
-                "chunk_target_chars": self.chunk_target_chars,
-                "task": "生成本章分段计划，约 200 字，只列出场景推进。",
-            },
-            model=context.get("model"),
-            prompt_version=context.get("prompt_version"),
-            max_output_tokens=800,
-        )
-        scenes = _extract_scenes(plan, fallback=outline, limit=chunk_count)
+        try:
+            plan = await self.service.generate_text(
+                f"{task_name}_chunk_plan",
+                system_prompt,
+                {
+                    **_public_context(context),
+                    "outline": outline,
+                    "target_chars": target_chars,
+                    "chunk_count": chunk_count,
+                    "chunk_target_chars": self.chunk_target_chars,
+                    "task": "生成本章分段计划，约 200 字，只列出场景推进。",
+                },
+                model=context.get("model"),
+                prompt_version=context.get("prompt_version"),
+                max_output_tokens=800,
+                timeout=60,
+            )
+            scenes = _extract_scenes(plan, fallback=outline, limit=chunk_count)
+        except (LLMTimeoutError, LLMProviderError, ProviderUnavailableError):
+            scenes = _extract_scenes("", fallback=outline, limit=chunk_count)
         chunks: list[str] = []
         for index, scene in enumerate(scenes, start=1):
             chunk = await self.service.generate_text(
@@ -54,6 +69,8 @@ class ChunkedGenerator:
             )
             if chunk.strip():
                 chunks.append(chunk.strip())
+                if self.on_progress:
+                    await self.on_progress(len(chunks), len(scenes))
         return "\n\n".join(chunks)
 
 

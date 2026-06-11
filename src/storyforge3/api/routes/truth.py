@@ -38,6 +38,15 @@ async def get_latest_truth(
     return ok(_truth_to_response(truth) if truth is not None else None)
 
 
+@router.get("/history")
+async def get_truth_history(
+    book_id: str,
+    store: TruthStore = Depends(get_truth_store),
+):
+    history = store.load_history(book_id)
+    return ok([_truth_to_response(item) for item in history])
+
+
 @router.get("/{chapter_no}")
 async def get_truth_by_chapter(
     book_id: str,

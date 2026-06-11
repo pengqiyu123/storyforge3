@@ -125,6 +125,15 @@ def test_set_active_and_build_runtime_provider(tmp_path: Path) -> None:
     assert runtime["cc_endpoint_candidates"] == ["https://cc-two.test/v1"]
 
 
+def test_build_runtime_provider_preserves_blank_model_id() -> None:
+    profile = provider("cc-relay", "key")
+    profile.pop("model_id")
+
+    runtime = build_provider_from_profile(profile)
+
+    assert runtime["model_id"] == ""
+
+
 def test_set_active_rejects_unknown_provider(tmp_path: Path) -> None:
     manager = ProviderConfigManager(tmp_path, reader=FakeReader([]))
 

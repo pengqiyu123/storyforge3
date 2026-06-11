@@ -25,3 +25,12 @@ async def test_extract_truth_success(async_client, api_truth_store):
     assert body["data"]["fact_assertions"] == ["第3章 truth 已提取。"]
     assert api_truth_store.saved[0] == "truth-api"
     assert api_truth_store.saved[1].chapter_no == 3
+
+
+@pytest.mark.asyncio
+async def test_get_truth_history(async_client, api_truth_store):
+    response = await async_client.get("/api/books/truth-api/truth/history")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert [item["chapter_no"] for item in body["data"]] == [1, 2]

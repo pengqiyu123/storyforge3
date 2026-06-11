@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
 
 from storyforge3.config import StoryForge3Config
 from storyforge3.models import ChapterIntent, ChapterStatus
-from storyforge3.services.chapter_service import ChapterService
+from storyforge3.services.chapter_service import CHAPTER_DRAFT_PROMPT, ChapterService
+from storyforge3.state.machine import ChapterStateMachine
 from storyforge3.style.imitation import StyleAnalyzer
 from storyforge3.truth.database import TruthDatabase, TruthEntry
 
@@ -57,6 +59,40 @@ class PlanPromptMockClient:
         return "本章目标：林默进入检测中心。"
 
 
+class ReviseMockClient:
+    def __init__(self, replacement: str) -> None:
+        self.replacement = replacement
+        self.calls: list[dict] = []
+
+    async def generate_text(self, task_name, system_prompt, user_payload, **kwargs):
+        self.calls.append({"task_name": task_name, "system_prompt": system_prompt, "payload": user_payload, "kwargs": kwargs})
+        if task_name == "chapter_plan":
+            return "本章目标：林默进入检测中心。"
+        return self.replacement
+
+    async def generate_json(self, task_name, system_prompt, user_payload, response_schema, **kwargs):
+        self.calls.append(
+            {
+                "task_name": task_name,
+                "system_prompt": system_prompt,
+                "payload": user_payload,
+                "response_schema": response_schema,
+                "kwargs": kwargs,
+            }
+        )
+        if task_name == "revise":
+            return {
+                "patches": [
+                    {
+                        "find": "请注意，",
+                        "replace": "这时，",
+                        "rule_id": "forbidden_patterns",
+                    }
+                ]
+            }
+        return {"fact_assertions": ["林默进入检测中心。"], "character_updates": [], "relationship_updates": [], "hook_updates": [], "irreversible_facts": [], "notes": []}
+
+
 def chinese_text(chars: int) -> str:
     return "林" * chars
 
@@ -87,6 +123,118 @@ def test_chapter_service_plan_draft_audit_and_run(config: StoryForge3Config, boo
     assert result.status == ChapterStatus.EXPORTED
 
 
+def test_chapter_service_update_text_writes_atomically_and_marks_needs_review(
+    config: StoryForge3Config,
+    book_workspace: Path,
+) -> None:
+    chapter_path = book_workspace / "chapters" / "0007.md"
+    original_text = chapter_path.read_text(encoding="utf-8")
+    original_hash = hashlib.sha256(original_text.encode("utf-8")).hexdigest()[:8]
+    service = ChapterService(config, llm=MockClient())
+
+    result = run(service.update_text("lurenjia", 7, "林默改完这一章。", expected_hash=original_hash))
+
+    assert result.status == ChapterStatus.NEEDS_REVIEW
+    assert result.text == "林默改完这一章。"
+    assert chapter_path.read_text(encoding="utf-8") == "林默改完这一章。"
+    assert chapter_path.with_suffix(".before.md").read_text(encoding="utf-8") == original_text
+    state_machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    assert state_machine.current_status("lurenjia", 7) == ChapterStatus.NEEDS_REVIEW
+    assert state_machine.history("lurenjia", 7)[-1]["reason"] == "manual_edit"
+
+
+def test_chapter_service_update_text_rejects_hash_conflicts(
+    config: StoryForge3Config,
+    book_workspace: Path,
+) -> None:
+    chapter_path = book_workspace / "chapters" / "0007.md"
+    original_text = chapter_path.read_text(encoding="utf-8")
+    service = ChapterService(config, llm=MockClient())
+
+    try:
+        run(service.update_text("lurenjia", 7, "林默改完这一章。", expected_hash="deadbeef"))
+    except ValueError as exc:
+        assert str(exc) == "章节内容已被修改，请刷新后重试"
+    else:
+        raise AssertionError("expected hash conflict")
+
+    assert chapter_path.read_text(encoding="utf-8") == original_text
+
+
+def test_chapter_service_update_text_rejects_missing_and_empty_chapters(
+    config: StoryForge3Config,
+    book_workspace: Path,
+) -> None:
+    (book_workspace / "chapters" / "0008.md").write_text("", encoding="utf-8")
+    service = ChapterService(config, llm=MockClient())
+
+    try:
+        run(service.update_text("lurenjia", 99, "林默改完这一章。"))
+    except FileNotFoundError:
+        pass
+    else:
+        raise AssertionError("expected missing chapter")
+
+    try:
+        run(service.update_text("lurenjia", 8, "林默改完这一章。"))
+    except ValueError as exc:
+        assert str(exc) == "空章节请先使用 draft 管线生成正文"
+    else:
+        raise AssertionError("expected empty chapter rejection")
+
+
+def test_chapter_service_revise_writes_revised_text_snapshot_and_diff(
+    config: StoryForge3Config,
+    book_workspace: Path,
+    sample_chapter_text: str,
+) -> None:
+    chapter_path = book_workspace / "chapters" / "0007.md"
+    original_text = f"请注意，{sample_chapter_text}"
+    revised_text = f"这时，{sample_chapter_text}"
+    chapter_path.write_text(original_text, encoding="utf-8")
+    service = ChapterService(config, llm=ReviseMockClient(revised_text))
+    state_machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    state_machine.advance("lurenjia", 7, ChapterStatus.PLANNED)
+    state_machine.advance("lurenjia", 7, ChapterStatus.DRAFTED)
+    state_machine.advance("lurenjia", 7, ChapterStatus.AUDITED)
+
+    result = run(service.revise("lurenjia", 7, mode="spot_fix"))
+
+    assert result.status == ChapterStatus.REVISED
+    assert result.text == revised_text
+    assert chapter_path.read_text(encoding="utf-8") == revised_text
+    assert chapter_path.with_suffix(".before.md").read_text(encoding="utf-8") == original_text
+    assert result.revision_diff is not None
+    assert result.revision_diff.summary.changed_blocks == 1
+    assert result.revision_diff.blocks[0].kind == "replace"
+    assert "请注意" in result.revision_diff.blocks[0].before_text
+    assert "这时" in result.revision_diff.blocks[0].after_text
+    assert result.error is not None
+    assert "revision_mode=spot_fix" in result.error
+    assert "mode_source=manual" in result.error
+    assert state_machine.current_status("lurenjia", 7) == ChapterStatus.REVISED
+
+
+def test_chapter_service_revise_returns_no_diff_when_audit_already_passed(
+    config: StoryForge3Config,
+    book_workspace: Path,
+    sample_chapter_text: str,
+) -> None:
+    chapter_path = book_workspace / "chapters" / "0007.md"
+    chapter_path.write_text(sample_chapter_text, encoding="utf-8")
+    state_machine = ChapterStateMachine(Path(config.books_dir) / "state.json")
+    state_machine.advance("lurenjia", 7, ChapterStatus.PLANNED)
+    state_machine.advance("lurenjia", 7, ChapterStatus.DRAFTED)
+    state_machine.advance("lurenjia", 7, ChapterStatus.AUDITED)
+    service = ChapterService(config, llm=ReviseMockClient(sample_chapter_text))
+
+    result = run(service.revise("lurenjia", 7))
+
+    assert result.revision_diff is None
+    assert result.error == "audit_passed_no_revision_needed"
+    assert not chapter_path.with_suffix(".before.md").exists()
+
+
 def test_chapter_service_plan_uses_registry_plan_template(config: StoryForge3Config, book_workspace: Path) -> None:
     llm = PlanPromptMockClient()
     service = ChapterService(config, llm=llm)
@@ -98,6 +246,25 @@ def test_chapter_service_plan_uses_registry_plan_template(config: StoryForge3Con
     assert call["task_name"] == "chapter_plan"
     assert "规划第8章" in call["system_prompt"]
     assert "不要输出章节正文" in call["system_prompt"]
+
+
+def test_chapter_draft_prompt_contains_writing_constraints() -> None:
+    assert "辨识度" in CHAPTER_DRAFT_PROMPT
+    assert "动作" in CHAPTER_DRAFT_PROMPT
+    assert "他感到" in CHAPTER_DRAFT_PROMPT
+    assert "总结性语言" in CHAPTER_DRAFT_PROMPT
+    assert "工程术语" in CHAPTER_DRAFT_PROMPT
+
+
+def test_chapter_draft_passes_prompt_to_llm(config: StoryForge3Config, book_workspace: Path) -> None:
+    write_book_meta(book_workspace, target_chars=700)
+    llm = DraftLengthMockClient(draft_text=chinese_text(700), normalized_text=chinese_text(700))
+    service = ChapterService(config, llm=llm)
+
+    run(service.draft("lurenjia", 8, ChapterIntent(8, "进入检测中心")))
+
+    assert llm.calls[0]["task_name"] == "chapter_draft"
+    assert llm.calls[0]["system_prompt"].startswith(CHAPTER_DRAFT_PROMPT)
 
 
 def test_chapter_service_draft_normalizes_text_outside_hard_range(config: StoryForge3Config, book_workspace: Path) -> None:
@@ -172,6 +339,74 @@ def test_chapter_service_draft_payload_includes_world_and_character_context(
         {"name": "林默", "role": "protagonist", "profile": "高三学生，能力是调节自己的存在感", "personality": "谨慎但不懦弱"},
         {"name": "许青", "role": "major", "profile": "异常检测中心实习记录员", "personality": "细心，善于观察"},
     ]
+
+
+def test_chapter_service_draft_injects_fanfic_context(
+    config: StoryForge3Config,
+    book_workspace: Path,
+) -> None:
+    write_book_meta(book_workspace, target_chars=700)
+    meta = json.loads((book_workspace / "book.json").read_text(encoding="utf-8"))
+    meta["fanfic_mode"] = "canon"
+    (book_workspace / "book.json").write_text(json.dumps(meta, ensure_ascii=False), encoding="utf-8")
+    (book_workspace / "fanfic_canon.md").write_text(
+        """# 同人正典（《原作A》）
+
+## 世界规则
+江城存在异常检测中心。
+
+## 角色档案
+| 角色 | 身份 | 性格底色 | 语癖/口头禅 | 说话风格 | 行为模式 | 关键关系 | 信息边界 |
+|------|------|----------|-------------|----------|----------|----------|----------|
+| 林默 | 高三学生 | 谨慎 | 先等等 | 短句，先观察后回应 | 遇事先确认出口 | 与许青互相试探 | 不知道副楼真相 |
+""",
+        encoding="utf-8",
+    )
+    (book_workspace / "fanfic_canon.json").write_text(
+        json.dumps(
+            {
+                "book_id": "lurenjia",
+                "source_name": "原作A",
+                "mode": "canon",
+                "world_rules": "江城存在异常检测中心。",
+                "character_profiles": "| 角色 | 身份 | 性格底色 | 语癖/口头禅 | 说话风格 | 行为模式 | 关键关系 | 信息边界 |\n|------|------|----------|-------------|----------|----------|----------|----------|\n| 林默 | 高三学生 | 谨慎 | 先等等 | 短句，先观察后回应 | 遇事先确认出口 | 与许青互相试探 | 不知道副楼真相 |",
+                "key_events": "林默进入检测中心。",
+                "power_system": "存在感系统。",
+                "writing_style": "短段落推进。",
+                "full_document": (book_workspace / "fanfic_canon.md").read_text(encoding="utf-8"),
+                "generated_at": "2026-06-09T00:00:00+00:00",
+            },
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    llm = DraftLengthMockClient(draft_text=chinese_text(700), normalized_text=chinese_text(700))
+    service = ChapterService(config, llm=llm)
+
+    run(service.draft("lurenjia", 8, ChapterIntent(8, "进入检测中心")))
+
+    draft_payload = llm.calls[0]["payload"]
+    assert "同人正典参照" in draft_payload["fanfic_canon"]
+    assert "原作向同人" in draft_payload["fanfic_canon"]
+    assert "角色语音参照" in draft_payload["character_voice_profiles"]
+    assert "先等等" in draft_payload["character_voice_profiles"]
+    assert "正典合规检查" in draft_payload["fanfic_mode_instructions"]
+
+
+def test_chapter_service_draft_omits_fanfic_context_for_original_books(
+    config: StoryForge3Config,
+    book_workspace: Path,
+) -> None:
+    write_book_meta(book_workspace, target_chars=700)
+    llm = DraftLengthMockClient(draft_text=chinese_text(700), normalized_text=chinese_text(700))
+    service = ChapterService(config, llm=llm)
+
+    run(service.draft("lurenjia", 8, ChapterIntent(8, "进入检测中心")))
+
+    draft_payload = llm.calls[0]["payload"]
+    assert "fanfic_canon" not in draft_payload
+    assert "character_voice_profiles" not in draft_payload
+    assert "fanfic_mode_instructions" not in draft_payload
 
 
 def test_chapter_service_draft_payload_uses_retrieved_truth(

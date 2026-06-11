@@ -12,6 +12,12 @@ def test_format_chapter_adds_header_and_strips_markdown() -> None:
     assert "---" not in formatted
 
 
+def test_format_chapter_does_not_duplicate_default_chapter_title() -> None:
+    formatted = PlatformFormatter().format_chapter("第1章", 1, "沈听澜醒了。")
+
+    assert formatted.splitlines()[0] == "第1章"
+
+
 def test_check_format_detects_short_text() -> None:
     errors = PlatformFormatter().check_format("短章", 1, "第1章 短章\n太短。")
     assert "word_count_out_of_range" in errors

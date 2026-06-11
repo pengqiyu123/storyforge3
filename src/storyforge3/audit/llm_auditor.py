@@ -39,17 +39,20 @@ class LLMAuditor:
         characters: tuple[Character, ...],
         world: WorldConfig | None,
         previous_truth: TruthData | None,
+        extra_context: str = "",
+        extra_dimensions: tuple[str, ...] = (),
     ) -> LLMAuditResult:
         template = self.registry.get_latest("llm_audit")
+        dimensions = (*AUDIT_DIMENSIONS, *extra_dimensions)
         data = await self.llm.generate_json(
             "llm_audit",
             self.registry.render_system_prompt(template),
-            self._payload(chapter_text, characters, world, previous_truth),
+            self._payload(chapter_text, characters, world, previous_truth, extra_context, dimensions),
             self._schema(),
             model=self.config.model_for_task("auditor"),
             prompt_version=f"{template.prompt_id}:v{template.version}",
         )
-        issues = tuple(self._parse_issue(item) for item in data.get("issues", ()) if isinstance(item, dict))
+        issues = tuple(self._parse_issue(item, dimensions) for item in data.get("issues", ()) if isinstance(item, dict))
         critical = any(issue.severity == "critical" for issue in issues)
         return LLMAuditResult(passed=not critical, issues=issues)
 
@@ -59,24 +62,27 @@ class LLMAuditor:
         characters: tuple[Character, ...],
         world: WorldConfig | None,
         previous_truth: TruthData | None,
+        extra_context: str,
+        dimensions: tuple[str, ...],
     ) -> dict:
         return {
-            "dimensions": list(AUDIT_DIMENSIONS),
+            "dimensions": list(dimensions),
             "chapter_text": chapter_text,
             "characters": [asdict(character) for character in characters],
             "world_setting": world.setting if world else "",
             "power_system": world.power_system if world else "",
             "world_rules": list(world.rules) if world else [],
             "previous_truth": list(previous_truth.fact_assertions) if previous_truth else [],
+            "context": extra_context,
         }
 
     @staticmethod
-    def _parse_issue(data: dict) -> LLMAuditIssue:
+    def _parse_issue(data: dict, dimensions: tuple[str, ...] = AUDIT_DIMENSIONS) -> LLMAuditIssue:
         severity = str(data.get("severity") or "warning").strip().lower()
         if severity not in ISSUE_SEVERITIES:
             severity = "warning"
         dimension = str(data.get("dimension") or "情节逻辑").strip()
-        if dimension not in AUDIT_DIMENSIONS:
+        if dimension not in dimensions:
             dimension = "情节逻辑"
         return LLMAuditIssue(
             severity=severity,

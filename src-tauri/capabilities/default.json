@@ -1,0 +1,18 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default desktop permissions for StoryForge3.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "dialog:default",
+    "fs:write-files",
+    "opener:default",
+    "opener:allow-open-path",
+    "process:default",
+    "shell:allow-spawn",
+    "store:default",
+    "updater:default",
+    "window-state:default"
+  ]
+}

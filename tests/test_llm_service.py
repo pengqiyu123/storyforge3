@@ -8,6 +8,7 @@ import pytest
 
 from storyforge3.llm.llm_service import (
     LLMRateLimitError,
+    LLMTimeoutError,
     LLMResponseFormatError,
     LLMService,
     ProviderUnavailableError,
@@ -20,6 +21,10 @@ from storyforge3.llm.llm_service import (
 
 def run(coro):
     return asyncio.run(coro)
+
+
+async def collect_stream(stream) -> list[str]:
+    return [chunk async for chunk in stream]
 
 
 def provider(**overrides) -> dict:
@@ -125,6 +130,125 @@ def test_openai_responses_request_and_extract() -> None:
     assert service.last_call is not None
     assert service.last_call.task_name == "draft"
     assert service.last_call.success is True
+
+
+def test_generate_text_stream_yields_openai_responses_chunks() -> None:
+    seen_payloads: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_payloads.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            content=(
+                'data: {"type":"response.output_text.delta","delta":"林默"}\n\n'
+                'data: {"type":"response.output_text.delta","delta":"进门"}\n\n'
+                "data: [DONE]\n\n"
+            ),
+        )
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    chunks = run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1})))
+
+    assert chunks == ["林默", "进门"]
+    assert seen_payloads[0]["stream"] is True
+    assert service.last_call is not None
+    assert service.last_call.success is True
+
+
+def test_generate_text_stream_yields_openai_chat_chunks() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=(
+                'data: {"choices":[{"delta":{"content":"许青"}}]}\n\n'
+                'data: {"choices":[{"delta":{"content":"追问"}}]}\n\n'
+                "data: [DONE]\n\n"
+            ),
+        )
+
+    service = LLMService(
+        provider(cc_api_format="openai_chat", cc_endpoint_auto_select=False),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1}))) == ["许青", "追问"]
+
+
+def test_generate_text_stream_falls_back_for_non_streaming_route() -> None:
+    seen_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        return httpx.Response(200, json={"content": [{"text": "非流式正文"}]})
+
+    service = LLMService(
+        provider(
+            cc_app_type="claude",
+            cc_api_format="anthropic",
+            cc_endpoint_auto_select=False,
+            base_url="https://claude.test",
+            cc_endpoint_candidates=["https://claude.test"],
+            model_id="claude-sonnet-4",
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1}))) == ["非流式正文"]
+    assert seen_urls == ["https://claude.test/v1/messages"]
+
+
+def test_generate_text_stream_falls_back_on_429_before_yielding() -> None:
+    responses = [
+        httpx.Response(429, json={"error": "limited"}),
+        httpx.Response(200, json=response_text("降级正文")),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return responses.pop(0)
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1}))) == ["降级正文"]
+
+
+def test_generate_text_stream_timeout_raises_llm_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow stream", request=request)
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    with pytest.raises(LLMTimeoutError):
+        run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1})))
 
 
 def test_task_timeout_defaults_and_explicit_override() -> None:
@@ -382,7 +506,58 @@ def test_504_retries_five_attempts_with_jittered_backoff(monkeypatch) -> None:
     assert delays == [3.0, 6.0, 12.0, 24.0]
 
 
-def test_model_id_defaults_when_missing() -> None:
+def test_route_candidates_keep_blank_model_for_relay_default() -> None:
     routes = _build_route_candidates(provider(model_id=""))
 
-    assert routes[0].model_id == "default"
+    assert routes[0].model_id == ""
+    assert routes[0].endpoint == "https://primary.test/v1/responses"
+
+
+def test_route_candidates_use_verified_model_when_profile_model_is_blank() -> None:
+    routes = _build_route_candidates(provider(model_id="", cc_last_verified_model="gpt-5.5"))
+
+    assert routes[0].model_id == "gpt-5.5"
+
+
+def test_blank_openai_model_tries_relay_default_then_discovered_model() -> None:
+    seen_models: list[str] = []
+    seen_model_discovery = False
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal seen_model_discovery
+        if request.method == "GET":
+            seen_model_discovery = True
+            assert str(request.url) == "https://primary.test/v1/models"
+            return httpx.Response(200, json={"data": [{"id": "gpt-5.5"}]})
+        payload = json.loads(request.content)
+        seen_models.append(payload["model"])
+        if payload["model"] == "default":
+            return httpx.Response(404, json={"error": "model default not found"})
+        return httpx.Response(200, json=response_text("正文", model=payload["model"]))
+
+    service = LLMService(
+        provider(
+            model_id="",
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(service.generate_text("draft", "system", {"x": 1})) == "正文"
+    assert seen_models == ["default", "gpt-5.5"]
+    assert seen_model_discovery is True
+    assert service.last_call is not None
+    assert service.last_call.model == "gpt-5.5"
+
+
+def test_check_health_returns_false_on_provider_timeout() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("slow provider", request=request)
+
+    service = LLMService(provider(), transport=httpx.MockTransport(handler), sleep=lambda _: None)
+
+    assert run(service.check_health()) is False

@@ -35,6 +35,7 @@ class BookService:
             target_chapters=config.target_chapters,
             chapter_word_count=config.chapter_word_count,
             language=config.language,
+            fanfic_mode=config.fanfic_mode,
             created_at=now,
             updated_at=now,
         )

@@ -63,3 +63,26 @@ def test_truth_extract_latest_template_declares_required_schema() -> None:
     assert "hook_updates" in rendered
     assert "irreversible_facts" in rendered
     assert "notes" in rendered
+
+
+def test_compose_template_includes_continuity_constraints() -> None:
+    registry = create_default_registry()
+    template = registry.get_latest("compose")
+    rendered = registry.render_system_prompt(template, chapter_no=8)
+
+    assert "上一章具体动作" in rendered
+    assert "不跳时间" in rendered
+    assert "不重复上一章" in rendered
+    assert "无来源大设定" in rendered
+
+
+def test_audit_template_includes_semantic_constraints() -> None:
+    registry = create_default_registry()
+    template = registry.get_latest("audit")
+    rendered = registry.render_system_prompt(template)
+
+    assert "人物动机" in rendered
+    assert "钩子兑现" in rendered
+    assert "节奏断裂" in rendered
+    assert "不要泛泛评价文笔" in rendered
+    assert "不要重复机械规则" in rendered

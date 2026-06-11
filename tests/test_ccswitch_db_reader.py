@@ -190,6 +190,30 @@ def test_reader_parses_codex_toml_and_endpoint_candidates_in_order(tmp_path: Pat
     ]
 
 
+def test_reader_preserves_blank_codex_model_for_relay_default(tmp_path: Path) -> None:
+    database = tmp_path / "cc-switch.db"
+    create_ccswitch_db(database)
+    insert_provider(
+        database,
+        "codex-default",
+        "codex",
+        {
+            "auth": {"OPENAI_API_KEY": "codex-key"},
+            "config": (
+                'model_provider = "relay"\n'
+                "[model_providers.relay]\n"
+                'base_url = "https://codex-relay.test/v1"\n'
+                'wire_api = "responses"\n'
+            ),
+        },
+    )
+
+    provider = CCSwitchDBReader(database).read_provider("cc-codex-default")
+
+    assert provider is not None
+    assert provider["model_id"] == ""
+
+
 def test_reader_parses_gemini_provider(tmp_path: Path) -> None:
     database = tmp_path / "cc-switch.db"
     create_ccswitch_db(database)

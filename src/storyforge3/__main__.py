@@ -89,7 +89,9 @@ def main() -> int:
     chapter_status.add_argument("book_id")
     chapter_status.add_argument("chapter_no", type=int)
 
-    subparsers.add_parser("serve", help="启动 API 服务器")
+    serve_parser = subparsers.add_parser("serve", help="启动 API 服务器")
+    serve_parser.add_argument("--port", type=int, default=8000, help="API 服务器监听端口")
+    subparsers.add_parser("mcp", help="启动 MCP Server（STDIO 模式）")
 
     args = parser.parse_args()
     config = StoryForge3Config()
@@ -102,15 +104,27 @@ def main() -> int:
     if args.command == "serve":
         import uvicorn
 
-        uvicorn.run("storyforge3.api.app:app", host="0.0.0.0", port=8000, reload=True)
+        uvicorn.run("storyforge3.api.app:app", host="127.0.0.1", port=args.port, reload=False)
+        return 0
+    if args.command == "mcp":
+        from storyforge3.mcp.server import create_server
+
+        create_server().run(transport="stdio")
         return 0
     if args.command == "health":
         try:
             ok = asyncio.run(llm().check_health())
-        except ProviderUnavailableError:
-            ok = False
-        print(json.dumps({"ccswitch": "ok" if ok else "unavailable"}, ensure_ascii=False))
-        return 0 if ok else 1
+        except ProviderUnavailableError as exc:
+            print(json.dumps({"ccswitch": "unavailable", "error": str(exc) or exc.__class__.__name__}, ensure_ascii=False))
+            return 1
+        except Exception as exc:
+            print(json.dumps({"ccswitch": "unavailable", "error": str(exc) or exc.__class__.__name__}, ensure_ascii=False))
+            return 1
+        if not ok:
+            print(json.dumps({"ccswitch": "unavailable"}, ensure_ascii=False))
+            return 1
+        print(json.dumps({"ccswitch": "ok"}, ensure_ascii=False))
+        return 0
     if args.command == "audit":
         text = Path(args.file_path).read_text(encoding="utf-8")
         result = AuditRunner().run_audit(args.chapter_no, text)

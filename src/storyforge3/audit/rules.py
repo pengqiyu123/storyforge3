@@ -70,6 +70,50 @@ def make_result(rule_id: str, passed: bool, severity: RuleSeverity, category: Ru
     return RuleResult(rule_id, passed, severity, category, message, detail)
 
 
+def _truncate_snippet(text: str, max_len: int = 200) -> str:
+    normalized = text.strip()
+    if len(normalized) <= max_len:
+        return normalized
+    return f"{normalized[:max_len]}…"
+
+
+def _paragraph_detail(ctx: MechanicalContext, indices: list[int], *, join: bool = False) -> dict:
+    valid = [index for index in indices if 0 <= index < len(ctx.paragraphs)]
+    if not valid:
+        return {}
+    snippet_text = "\n".join(ctx.paragraphs[index] for index in valid) if join else ctx.paragraphs[valid[0]]
+    return {"paragraph_indices": valid, "snippet": _truncate_snippet(snippet_text)}
+
+
+def _paragraphs_containing(ctx: MechanicalContext, words: list[str] | tuple[str, ...]) -> list[int]:
+    return [index for index, paragraph in enumerate(ctx.paragraphs) if any(word in paragraph for word in words)]
+
+
+def _longest_paragraph_index(ctx: MechanicalContext) -> int | None:
+    if not ctx.paragraphs:
+        return None
+    return max(range(len(ctx.paragraphs)), key=lambda index: len(ctx.paragraphs[index]))
+
+
+def _quiet_run_indices(paragraphs: tuple[str, ...], markers: tuple[str, ...]) -> list[int]:
+    best_start = current_start = 0
+    best_len = current_len = 0
+    for index, paragraph in enumerate(paragraphs):
+        if any(marker in paragraph for marker in markers):
+            current_start = index + 1
+            current_len = 0
+            continue
+        current_len += 1
+        if current_len > best_len:
+            best_len = current_len
+            best_start = current_start
+    return list(range(best_start, best_start + best_len)) if best_len else []
+
+
+def _unbalanced_paragraph_indices(ctx: MechanicalContext) -> list[int]:
+    return [index for index, paragraph in enumerate(ctx.paragraphs) if has_unbalanced_pairs(paragraph)]
+
+
 def check_empty_text(ctx: MechanicalContext) -> RuleResult:
     return make_result("empty_text", bool(ctx.text.strip()), RuleSeverity.BLOCKING, RuleCategory.INTEGRITY, "正文不能为空")
 
@@ -83,13 +127,18 @@ def check_chapter_word_count(ctx: MechanicalContext) -> RuleResult:
 
 
 def check_unbalanced_quote_or_bracket(ctx: MechanicalContext) -> RuleResult:
-    return make_result("unbalanced_quote_or_bracket", not has_unbalanced_pairs(ctx.text), RuleSeverity.BLOCKING, RuleCategory.INTEGRITY, "引号或括号不平衡")
+    passed = not has_unbalanced_pairs(ctx.text)
+    detail = {} if passed else _paragraph_detail(ctx, _unbalanced_paragraph_indices(ctx))
+    return make_result("unbalanced_quote_or_bracket", passed, RuleSeverity.BLOCKING, RuleCategory.INTEGRITY, "引号或括号不平衡", **detail)
 
 
 def check_forbidden_patterns(ctx: MechanicalContext) -> RuleResult:
     bad = ("请注意", "以下是", "作为AI", "我是AI")
     found = [word for word in bad if word in ctx.text]
-    return make_result("forbidden_patterns", not found, RuleSeverity.BLOCKING, RuleCategory.META, "含禁止输出模式", found=found)
+    detail = {"found": found}
+    if found:
+        detail.update(_paragraph_detail(ctx, _paragraphs_containing(ctx, found)))
+    return make_result("forbidden_patterns", not found, RuleSeverity.BLOCKING, RuleCategory.META, "含禁止输出模式", **detail)
 
 
 def check_golden_three_hook(ctx: MechanicalContext) -> RuleResult:
@@ -112,6 +161,7 @@ def check_golden_three_hook(ctx: MechanicalContext) -> RuleResult:
         score=score,
         matched_dimensions=[name for name, passed in checks.items() if passed],
         keyword_hits=keyword_hits,
+        **({} if score >= 2 else _paragraph_detail(ctx, list(range(min(3, len(head_paragraphs)))), join=True)),
     )
 
 
@@ -131,7 +181,10 @@ def _has_dialogue_or_sound(text: str) -> bool:
 
 def check_internal_engine_terms(ctx: MechanicalContext) -> RuleResult:
     found = [word for word in ENGINE_TERMS if word in ctx.text]
-    return make_result("internal_engine_terms", not found, RuleSeverity.WARNING, RuleCategory.META, "泄露内部工程术语", found=found)
+    detail = {"found": found}
+    if found:
+        detail.update(_paragraph_detail(ctx, _paragraphs_containing(ctx, found)))
+    return make_result("internal_engine_terms", not found, RuleSeverity.WARNING, RuleCategory.META, "泄露内部工程术语", **detail)
 
 
 def check_ai_tell_density(ctx: MechanicalContext) -> RuleResult:
@@ -151,12 +204,21 @@ def check_action_sentence_ratio(ctx: MechanicalContext) -> RuleResult:
 
 def check_pacing_flat(ctx: MechanicalContext) -> RuleResult:
     value = max_quiet_paragraph_run(list(ctx.paragraphs), TURN_MARKERS)
-    return make_result("pacing_flat", value < T.MAX_PACING_FLAT_RUN, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "连续平段过长", observed=value)
+    passed = value < T.MAX_PACING_FLAT_RUN
+    detail = {"observed": value}
+    if not passed:
+        detail.update(_paragraph_detail(ctx, _quiet_run_indices(ctx.paragraphs, TURN_MARKERS)))
+    return make_result("pacing_flat", passed, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "连续平段过长", **detail)
 
 
 def check_repeated_phrase(ctx: MechanicalContext) -> RuleResult:
     phrases = repeated_phrases(ctx.text)
-    return make_result("repeated_phrase", len(phrases) <= T.MAX_REPEATED_PHRASES, RuleSeverity.WARNING, RuleCategory.STYLE, "重复短语过多", phrases=phrases[:5])
+    passed = len(phrases) <= T.MAX_REPEATED_PHRASES
+    detail = {"phrases": phrases[:5]}
+    if not passed:
+        phrase_values = [phrase for phrase, _count in phrases[:5]]
+        detail.update(_paragraph_detail(ctx, _paragraphs_containing(ctx, phrase_values)))
+    return make_result("repeated_phrase", passed, RuleSeverity.WARNING, RuleCategory.STYLE, "重复短语过多", **detail)
 
 
 def check_dialogue_density(ctx: MechanicalContext) -> RuleResult:
@@ -166,8 +228,13 @@ def check_dialogue_density(ctx: MechanicalContext) -> RuleResult:
 
 
 def check_info_dump(ctx: MechanicalContext) -> RuleResult:
-    longest = max((len(p) for p in ctx.paragraphs), default=0)
-    return make_result("info_dump", longest <= T.MAX_INFO_DUMP_PARAGRAPH_CHARS, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "长段信息倾倒", observed=longest)
+    longest_index = _longest_paragraph_index(ctx)
+    longest = len(ctx.paragraphs[longest_index]) if longest_index is not None else 0
+    passed = longest <= T.MAX_INFO_DUMP_PARAGRAPH_CHARS
+    detail = {"observed": longest}
+    if not passed and longest_index is not None:
+        detail.update(_paragraph_detail(ctx, [longest_index]))
+    return make_result("info_dump", passed, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "长段信息倾倒", **detail)
 
 
 def check_paragraph_count(ctx: MechanicalContext) -> RuleResult:
@@ -177,12 +244,19 @@ def check_paragraph_count(ctx: MechanicalContext) -> RuleResult:
 def check_cliffhanger_presence(ctx: MechanicalContext) -> RuleResult:
     tail = "\n".join(ctx.paragraphs[-3:])
     passed = any(mark in tail for mark in ("？", "！", "突然", "下一秒", "停了下来", "门", "声音"))
-    return make_result("cliffhanger_presence", passed, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "章尾钩子不足")
+    start = max(0, len(ctx.paragraphs) - 3)
+    detail = {} if passed else _paragraph_detail(ctx, list(range(start, len(ctx.paragraphs))), join=True)
+    return make_result("cliffhanger_presence", passed, RuleSeverity.WARNING, RuleCategory.STRUCTURE, "章尾钩子不足", **detail)
 
 
 def check_max_paragraph_length(ctx: MechanicalContext) -> RuleResult:
-    longest = max((len(p) for p in ctx.paragraphs), default=0)
-    return make_result("max_paragraph_length", longest <= T.MAX_PARAGRAPH_CHARS, RuleSeverity.WARNING, RuleCategory.STYLE, "段落过长", observed=longest)
+    longest_index = _longest_paragraph_index(ctx)
+    longest = len(ctx.paragraphs[longest_index]) if longest_index is not None else 0
+    passed = longest <= T.MAX_PARAGRAPH_CHARS
+    detail = {"observed": longest}
+    if not passed and longest_index is not None:
+        detail.update(_paragraph_detail(ctx, [longest_index]))
+    return make_result("max_paragraph_length", passed, RuleSeverity.WARNING, RuleCategory.STYLE, "段落过长", **detail)
 
 
 def regex_rule(rule_id: str, pattern: str, category: RuleCategory, message: str, max_count: int = 0) -> Callable[[MechanicalContext], RuleResult]:

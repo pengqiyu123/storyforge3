@@ -4,17 +4,19 @@ import json
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from time import perf_counter
 
 from storyforge3.audit import thresholds as T
 from storyforge3.audit.chinese_text import count_chinese_chars
 from storyforge3.audit.revision_patch import apply_patches, build_patch_targets, validate_patch_response
-from storyforge3.audit.revision_modes import RevisionModeRecommender, get_mode_config
+from storyforge3.audit.revision_modes import RevisionMode, RevisionModeRecommender, get_mode_config
 from storyforge3.audit.runner import AuditRunner
 from storyforge3.config import StoryForge3Config
 from storyforge3.context import ContextBlock, ContextPackage, ContextPriority
 from storyforge3.export.formatter import PlatformFormatter
 from storyforge3.llm.chunked_generator import ChunkedGenerator
 from storyforge3.llm.factory import create_llm_service
+from storyforge3.logging.pipeline_logger import PipelineLogger, PipelineRunRecord
 from storyforge3.models import AuditResult, ChapterResult, ChapterStatus, LLMCallRecord, TruthData
 from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.length_normalizer import LengthNormalizationResult, LengthNormalizer
@@ -48,10 +50,14 @@ class ChapterWorkflow:
         *,
         client: object | None = None,
         registry: PromptRegistry | None = None,
+        logger: PipelineLogger | None = None,
     ) -> None:
         self.config = config
         self.client = client or create_llm_service(config)
         self.registry = registry or create_default_registry()
+        self._logger = logger
+        self._last_log_error: str | None = None
+        self._last_context_sources: list[dict] = []
         self.audit_runner = AuditRunner()
         self.truth_store = TruthStore(config.books_dir)
         self.truth_retriever = TruthRetriever(self.truth_store.database)
@@ -66,49 +72,184 @@ class ChapterWorkflow:
         chapter_no: int,
         human_confirm: Callable[[ChapterResult], bool] | None = None,
     ) -> ChapterResult:
+        full_started_at, full_started = self._log_start()
         title = f"第{chapter_no}章"
         text = ""
         audit: AuditResult | None = None
         llm_calls: list[LLMCallRecord] = []
         try:
             ctx = await self.step_import(book_id)
+            plan_started_at, plan_started = self._log_start()
+            plan_before = self._current_status_value(book_id, chapter_no)
             self._advance(book_id, chapter_no, ChapterStatus.PLANNED)
-            plan = await self.step_plan(ctx, chapter_no)
-            self._append_last_call(llm_calls)
+            try:
+                plan = await self.step_plan(ctx, chapter_no)
+                self._append_last_call(llm_calls)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "plan",
+                    status="success",
+                    started_at=plan_started_at,
+                    started_monotonic=plan_started,
+                    llm_calls=llm_calls,
+                    status_before=plan_before,
+                    status_after=ChapterStatus.PLANNED.value,
+                )
+            except Exception as exc:
+                self._append_last_call(llm_calls)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "plan",
+                    status="failure",
+                    error=str(exc),
+                    started_at=plan_started_at,
+                    started_monotonic=plan_started,
+                    llm_calls=llm_calls,
+                    status_before=plan_before,
+                    status_after=self._current_status_value(book_id, chapter_no),
+                )
+                raise
 
+            draft_started_at, draft_started = self._log_start()
+            draft_before = self._current_status_value(book_id, chapter_no)
             self._advance(book_id, chapter_no, ChapterStatus.DRAFTED)
-            text = await self.step_draft(plan, ctx, chapter_no)
-            self._append_last_call(llm_calls)
+            try:
+                text = await self.step_draft(plan, ctx, chapter_no)
+                self._append_last_call(llm_calls)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "draft",
+                    status="success",
+                    started_at=draft_started_at,
+                    started_monotonic=draft_started,
+                    llm_calls=llm_calls,
+                    context_sources=self._last_context_sources,
+                    status_before=draft_before,
+                    status_after=ChapterStatus.DRAFTED.value,
+                )
+            except Exception as exc:
+                self._append_last_call(llm_calls)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "draft",
+                    status="failure",
+                    error=str(exc),
+                    started_at=draft_started_at,
+                    started_monotonic=draft_started,
+                    llm_calls=llm_calls,
+                    context_sources=self._last_context_sources,
+                    status_before=draft_before,
+                    status_after=self._current_status_value(book_id, chapter_no),
+                )
+                raise
             normalization = await self.step_normalize_draft(book_id, text)
             if normalization.action != "none":
                 self._append_last_call(llm_calls)
             text = normalization.text
 
-            audit = self.step_audit(chapter_no, text)
+            audit_started_at, audit_started = self._log_start()
+            audit_before = self._current_status_value(book_id, chapter_no)
+            try:
+                audit = self.step_audit(chapter_no, text)
+            except Exception as exc:
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "audit",
+                    status="failure",
+                    error=str(exc),
+                    started_at=audit_started_at,
+                    started_monotonic=audit_started,
+                    llm_calls=llm_calls,
+                    status_before=audit_before,
+                    status_after=self._current_status_value(book_id, chapter_no),
+                )
+                raise
             self._advance(book_id, chapter_no, ChapterStatus.AUDITED)
+            self._log_audit_run(book_id, chapter_no, audit, audit_started_at, audit_started, llm_calls, audit_before, ChapterStatus.AUDITED.value)
 
             if not audit.passed:
                 text, audit = await self._revise_until_passes(book_id, chapter_no, title, text, audit, ctx, llm_calls)
                 if not audit.passed:
-                    return self._needs_review(book_id, chapter_no, title, text, "revision_exhausted", audit, None, llm_calls)
+                    result = self._needs_review(book_id, chapter_no, title, text, "revision_exhausted", audit, None, llm_calls)
+                    self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+                    return result
             preview = ChapterResult(book_id, chapter_no, ChapterStatus.AUDITED, title, text, audit=audit, llm_calls=tuple(llm_calls))
             if human_confirm is None:
-                return self._needs_review(book_id, chapter_no, title, text, "human_confirmation_required", audit, None, llm_calls)
+                result = self._needs_review(book_id, chapter_no, title, text, "human_confirmation_required", audit, None, llm_calls)
+                self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+                return result
             if not human_confirm(preview):
-                return self._needs_review(book_id, chapter_no, title, text, "human_rejected", audit, None, llm_calls)
+                result = self._needs_review(book_id, chapter_no, title, text, "human_rejected", audit, None, llm_calls)
+                self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+                return result
 
             truth = await self.truth_extractor.extract(chapter_no, text, ctx.previous_truth)
             self._append_last_call(llm_calls)
             self.truth_store.save(book_id, truth)
 
+            approve_started_at, approve_started = self._log_start()
+            approve_before = self._current_status_value(book_id, chapter_no)
             self._advance(book_id, chapter_no, ChapterStatus.APPROVED)
-            await self.step_export(chapter_no, title, text, book_id)
+            self._log_run(
+                book_id,
+                chapter_no,
+                "approve",
+                status="success",
+                started_at=approve_started_at,
+                started_monotonic=approve_started,
+                llm_calls=llm_calls,
+                status_before=approve_before,
+                status_after=ChapterStatus.APPROVED.value,
+            )
+            if self.config.snapshot_enabled:
+                self._create_snapshot(book_id, chapter_no)
+            export_started_at, export_started = self._log_start()
+            export_before = self._current_status_value(book_id, chapter_no)
+            try:
+                self._ensure_truth_persisted(book_id, chapter_no)
+                await self.step_export(chapter_no, title, text, book_id)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "export",
+                    status="success",
+                    started_at=export_started_at,
+                    started_monotonic=export_started,
+                    llm_calls=llm_calls,
+                    status_before=export_before,
+                    status_after=ChapterStatus.EXPORTED.value,
+                )
+            except Exception as exc:
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "export",
+                    status="failure",
+                    error=str(exc),
+                    started_at=export_started_at,
+                    started_monotonic=export_started,
+                    llm_calls=llm_calls,
+                    status_before=export_before,
+                    status_after=self._current_status_value(book_id, chapter_no),
+                )
+                raise
             self._advance(book_id, chapter_no, ChapterStatus.EXPORTED)
-            return ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, title, text, audit=audit, truth=truth, llm_calls=tuple(llm_calls))
+            result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, title, text, audit=audit, truth=truth, llm_calls=tuple(llm_calls))
+            self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+            return result
         except TruthExtractionError as exc:
-            return self._needs_review(book_id, chapter_no, title, text, f"truth_extraction_failed: {exc.reason}", audit, None, llm_calls)
+            result = self._needs_review(book_id, chapter_no, title, text, f"truth_extraction_failed: {exc.reason}", audit, None, llm_calls)
+            self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+            return result
         except Exception as exc:
-            return self._needs_review(book_id, chapter_no, title, "", str(exc), None, None, llm_calls)
+            result = self._needs_review(book_id, chapter_no, title, "", str(exc), None, None, llm_calls)
+            self._log_full_pipeline(book_id, chapter_no, result, full_started_at, full_started)
+            return result
 
     async def step_import(self, book_id: str) -> BookContext:
         root = Path(self.config.books_dir) / book_id
@@ -153,6 +294,7 @@ class ChapterWorkflow:
         )
         context_package = self._draft_context_package(plan, ctx, previous_chapter_tail, truth_text)
         context_package.trim_to_budget()
+        self._last_context_sources = context_package.sources_summary()
         payload = {
             "book_id": ctx.book_id,
             "chapter_no": chapter_no,
@@ -204,9 +346,18 @@ class ChapterWorkflow:
             package.add(ContextBlock("truth_retrieval", ContextPriority.HIGH, truth_text, {"max_chars": 4000}))
         return package
 
-    async def step_revise(self, ctx: BookContext, chapter_no: int, text: str, audit: AuditResult, revision_round: int) -> str:
+    async def step_revise(
+        self,
+        ctx: BookContext,
+        chapter_no: int,
+        text: str,
+        audit: AuditResult,
+        revision_round: int,
+        *,
+        mode_override: RevisionMode | str | None = None,
+    ) -> str:
         failed = self.revision_recommender.failed_results(audit.rule_results)
-        mode = self.revision_recommender.recommend(
+        mode = RevisionMode(mode_override) if mode_override is not None else self.revision_recommender.recommend(
             failed,
             blocking_count=len(audit.blocking_issues),
             revision_round=revision_round,
@@ -330,12 +481,44 @@ class ChapterWorkflow:
         llm_calls: list[LLMCallRecord],
     ) -> tuple[str, AuditResult]:
         for revision_round in range(MAX_REVISION_ROUNDS):
+            revise_started_at, revise_started = self._log_start()
+            revise_before = self._current_status_value(book_id, chapter_no)
             self._advance(book_id, chapter_no, ChapterStatus.NEEDS_REVISION)
-            text = await self.step_revise(ctx, chapter_no, text, audit, revision_round)
-            self._append_last_call(llm_calls)
+            try:
+                text = await self.step_revise(ctx, chapter_no, text, audit, revision_round)
+                self._append_last_call(llm_calls)
+            except Exception as exc:
+                self._append_last_call(llm_calls)
+                self._log_run(
+                    book_id,
+                    chapter_no,
+                    "revise",
+                    status="failure",
+                    error=str(exc),
+                    started_at=revise_started_at,
+                    started_monotonic=revise_started,
+                    llm_calls=llm_calls,
+                    status_before=revise_before,
+                    status_after=self._current_status_value(book_id, chapter_no),
+                )
+                raise
             self._advance(book_id, chapter_no, ChapterStatus.REVISED)
+            self._log_run(
+                book_id,
+                chapter_no,
+                "revise",
+                status="success",
+                started_at=revise_started_at,
+                started_monotonic=revise_started,
+                llm_calls=llm_calls,
+                status_before=revise_before,
+                status_after=ChapterStatus.REVISED.value,
+            )
+            audit_started_at, audit_started = self._log_start()
+            audit_before = self._current_status_value(book_id, chapter_no)
             audit = self.step_audit(chapter_no, text)
             self._advance(book_id, chapter_no, ChapterStatus.AUDITED)
+            self._log_audit_run(book_id, chapter_no, audit, audit_started_at, audit_started, llm_calls, audit_before, ChapterStatus.AUDITED.value)
             if audit.passed:
                 return text, audit
         return text, audit
@@ -346,6 +529,10 @@ class ChapterWorkflow:
         path = output_dir / f"chapter-{chapter_no:04d}.txt"
         path.write_text(self.formatter.format_chapter(title, chapter_no, text), encoding="utf-8")
         return path
+
+    def _ensure_truth_persisted(self, book_id: str, chapter_no: int) -> None:
+        if self.truth_store.load(book_id, chapter_no) is None:
+            raise TruthExtractionError(chapter_no, "Truth 提取未完成，无法导出。请重新运行 truth_extract 步骤。")
 
     def _advance(self, book_id: str, chapter_no: int, status: ChapterStatus) -> None:
         try:
@@ -408,6 +595,113 @@ class ChapterWorkflow:
         call = getattr(self.client, "last_call", None)
         if isinstance(call, LLMCallRecord):
             records.append(call)
+
+    @staticmethod
+    def _log_start() -> tuple[str, float]:
+        return PipelineLogger.now_iso(), perf_counter()
+
+    def _current_status_value(self, book_id: str, chapter_no: int) -> str:
+        return self.state_machine.current_status(book_id, chapter_no).value
+
+    def _log_run(
+        self,
+        book_id: str,
+        chapter_no: int,
+        task: str,
+        *,
+        status: str,
+        error: str | None = None,
+        started_at: str | None = None,
+        started_monotonic: float | None = None,
+        llm_calls: list[LLMCallRecord] | tuple[LLMCallRecord, ...] | None = None,
+        context_sources: list[dict] | None = None,
+        status_before: str | None = None,
+        status_after: str | None = None,
+        audit_passed: bool | None = None,
+        audit_blocking: int | None = None,
+        audit_warnings: int | None = None,
+    ) -> None:
+        if self._logger is None:
+            return
+        finished_at = PipelineLogger.now_iso()
+        duration_ms = (perf_counter() - started_monotonic) * 1000 if started_monotonic is not None else None
+        record = PipelineRunRecord(
+            book_id=book_id,
+            chapter_no=chapter_no,
+            task=task,
+            timestamp=finished_at,
+            started_at=started_at,
+            finished_at=finished_at,
+            duration_ms=duration_ms,
+            status=status,
+            error=error,
+            llm_calls=[asdict(call) for call in llm_calls or ()],
+            context_sources=context_sources or [],
+            status_before=status_before,
+            status_after=status_after,
+            audit_passed=audit_passed,
+            audit_blocking=audit_blocking,
+            audit_warnings=audit_warnings,
+        )
+        try:
+            self._logger.append(record)
+        except Exception as exc:
+            self._last_log_error = str(exc)
+
+    def _log_audit_run(
+        self,
+        book_id: str,
+        chapter_no: int,
+        audit: AuditResult,
+        started_at: str,
+        started_monotonic: float,
+        llm_calls: list[LLMCallRecord],
+        status_before: str | None,
+        status_after: str | None,
+    ) -> None:
+        self._log_run(
+            book_id,
+            chapter_no,
+            "audit",
+            status="success",
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            llm_calls=llm_calls,
+            status_before=status_before,
+            status_after=status_after,
+            audit_passed=audit.passed,
+            audit_blocking=len(audit.blocking_issues),
+            audit_warnings=len(audit.warnings),
+        )
+
+    def _log_full_pipeline(
+        self,
+        book_id: str,
+        chapter_no: int,
+        result: ChapterResult,
+        started_at: str,
+        started_monotonic: float,
+    ) -> None:
+        self._log_run(
+            book_id,
+            chapter_no,
+            "full_pipeline",
+            status="success" if result.status == ChapterStatus.EXPORTED else "failure",
+            error=result.error,
+            started_at=started_at,
+            started_monotonic=started_monotonic,
+            llm_calls=result.llm_calls,
+            status_after=result.status.value,
+        )
+
+    def _create_snapshot(self, book_id: str, chapter_no: int) -> None:
+        """导出前创建快照；失败不阻塞主流程。"""
+        try:
+            from storyforge3.snapshot import SnapshotManager
+
+            SnapshotManager(self.config.books_dir, max_count=self.config.snapshot_max_count).create_snapshot(book_id, chapter_no)
+        except Exception as exc:
+            self._last_snapshot_error = str(exc)
 
     def _load_target_chapter_chars(self, book_id: str) -> int | None:
         path = Path(self.config.books_dir) / book_id / "book.json"

@@ -9,8 +9,20 @@ from storyforge3.services.json_text import parse_json_text
 from storyforge3.storage import BookStorage, StoragePaths
 
 
-CHARACTER_SYSTEM_PROMPT = "你是中文网文角色设计师。请只输出 JSON。"
-CHARACTER_TEXT_PROMPT = """你是中文网文角色设计师。
+CHARACTER_SYSTEM_PROMPT = """你是中文网文角色设计师兼人设审稿人。根据 spec/specs 为第一卷生成可落地角色。
+输出必须是 JSON object，字段必须符合请求。
+角色设计要求：
+- 角色必须从具体场景、事件、职业或关系压力中诞生，不要用标签堆叠。
+- profile 要写清身份、当前处境、第一卷会执行的具体行为。
+- personality 必须有矛盾面：在一种场景会做什么，在另一种压力下会反常做什么。
+- 参考角色档案维度：身份、性格底色、语癖/说话风格、行为模式、关键关系、信息边界。
+- abilities 只写已给出或由 spec 合理推出的能力，不凭空塞强能力。
+- arc_direction 写角色在第一卷的变化方向，不写空泛成长。
+- 禁止单标签人格：冷酷、温柔、阳光、腹黑、善良、神秘等不能单独充当 personality。
+- 禁止模板名和借壳名，如龙傲天、叶凡、萧炎、林凡；名字要适配题材和社会环境。
+只输出 JSON，不要解释。"""
+CHARACTER_TEXT_PROMPT = f"""{CHARACTER_SYSTEM_PROMPT}
+
 请用 ```json ... ``` 输出一个 JSON object，字段必须符合请求。
 单角色必须包含 name, role, profile, personality。
 批量角色必须包含 characters，可选 relationships。
@@ -83,11 +95,55 @@ class CharacterService:
 
     @staticmethod
     def _schema() -> dict:
-        return {"type": "object", "required": ["name", "role", "profile", "personality"]}
+        return {
+            "type": "object",
+            "required": ["name", "role", "profile", "personality"],
+            "properties": {
+                "name": {"type": "string"},
+                "role": {"type": "string"},
+                "profile": {"type": "string"},
+                "personality": {"type": "string"},
+                "abilities": {"type": "array", "items": {"type": "string"}},
+                "arc_direction": {"type": "string"},
+            },
+        }
 
     @staticmethod
     def _batch_schema() -> dict:
-        return {"type": "object", "required": ["characters"]}
+        return {
+            "type": "object",
+            "required": ["characters"],
+            "properties": {
+                "characters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["name", "role", "profile", "personality"],
+                        "properties": {
+                            "name": {"type": "string"},
+                            "role": {"type": "string"},
+                            "profile": {"type": "string"},
+                            "personality": {"type": "string"},
+                            "abilities": {"type": "array", "items": {"type": "string"}},
+                            "arc_direction": {"type": "string"},
+                        },
+                    },
+                },
+                "relationships": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "required": ["character_a", "character_b", "relation_type", "description"],
+                        "properties": {
+                            "character_a": {"type": "string"},
+                            "character_b": {"type": "string"},
+                            "relation_type": {"type": "string"},
+                            "description": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        }
 
     @staticmethod
     def _normalize_role(value: object) -> CharacterRole:

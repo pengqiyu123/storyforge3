@@ -6,4 +6,16 @@ Keeping this package initializer lazy avoids circular imports between the
 workflow orchestration module and service implementations.
 """
 
-__all__ = ["book_service", "chapter_service", "character_service", "volume_service", "world_service"]
+__all__ = [
+    "audit_service",
+    "book_service",
+    "chapter_service",
+    "character_service",
+    "fanfic_service",
+    "prompt_service",
+    "short_story_service",
+    "style_service",
+    "truth_service",
+    "volume_service",
+    "world_service",
+]

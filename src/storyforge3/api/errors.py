@@ -24,6 +24,14 @@ def chapter_not_found(book_id: str, chapter_no: int) -> ApiError:
     )
 
 
+def chapter_empty(message: str = "空章节请先使用 draft 管线生成正文") -> ApiError:
+    return ApiError(status=409, code="CHAPTER_EMPTY", message=message)
+
+
+def content_conflict(message: str = "章节内容已被修改，请刷新后重试") -> ApiError:
+    return ApiError(status=409, code="CONTENT_CONFLICT", message=message)
+
+
 def invalid_parameter(message: str) -> ApiError:
     return ApiError(status=400, code="INVALID_PARAMETER", message=message)
 
@@ -38,3 +46,7 @@ def state_error(message: str) -> ApiError:
 
 def internal_error(message: str) -> ApiError:
     return ApiError(status=500, code="INTERNAL_ERROR", message=message)
+
+
+def not_found(message: str) -> ApiError:
+    return ApiError(status=404, code="NOT_FOUND", message=message)

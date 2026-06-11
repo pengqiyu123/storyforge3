@@ -112,3 +112,43 @@ def test_truth_store_dual_writes_json_and_sqlite(tmp_path: Path) -> None:
     assert len(db_rows) == 7
     assert "林默进入检测中心。" in [row.content for row in db_rows]
     assert {row.category for row in db_rows} == {"plot_point", "character_event", "relationship", "world_rule"}
+
+
+def test_truth_store_load_history_returns_sorted_truth_data(tmp_path: Path) -> None:
+    store = TruthStore(str(tmp_path / "books"))
+    store.save(
+        "lurenjia",
+        TruthData(
+            chapter_no=3,
+            source="runtime_native",
+            fact_assertions=("第3章事实。",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+    store.save(
+        "lurenjia",
+        TruthData(
+            chapter_no=1,
+            source="runtime_native",
+            fact_assertions=("第1章事实。",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+
+    history = store.load_history("lurenjia")
+
+    assert [item.chapter_no for item in history] == [1, 3]
+
+
+def test_truth_store_load_history_returns_empty_for_missing_book(tmp_path: Path) -> None:
+    store = TruthStore(str(tmp_path / "books"))
+
+    assert store.load_history("missing") == []

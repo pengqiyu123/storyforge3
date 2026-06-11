@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 
-from storyforge3.api.sse import PipelineEvent, SSEManager, sse_manager
+from storyforge3.api.sse import PipelineEvent, SSEManager, make_chunk_event, make_progress_event, sse_manager
+from storyforge3.models import ChapterResult, ChapterStatus
 
 
 def test_chapter_status_not_found(client):
@@ -29,8 +31,9 @@ def test_chapter_plan_and_draft_emit_sse_events(client, mock_chapter_service):
     assert "林默停在副楼门口" in draft.json()["data"]["text"]
     assert mock_chapter_service.last_draft_intent.goal == "进入副楼"
 
-    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 2))
-    assert [event["type"] for event in events] == ["pipeline:start", "pipeline:complete"]
+    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 3))
+    assert [event["type"] for event in events] == ["pipeline:start", "llm:progress", "pipeline:complete"]
+    assert events[1]["detail"] == {"completed": 1, "total": 2}
 
 
 def test_chapter_audit_before_draft_returns_404(client, mock_chapter_service):
@@ -45,6 +48,12 @@ def test_chapter_audit_llm_and_normalize(client):
     assert audit.status_code == 200
     assert audit.json()["data"]["passed"] is True
     assert audit.json()["data"]["warnings"] == ["节奏可继续加强"]
+    rule_results = audit.json()["data"]["rule_results"]
+    assert rule_results[0]["rule_id"] == "info_dump"
+    assert rule_results[0]["severity"] == "WARNING"
+    assert rule_results[0]["category"] == "STRUCTURE"
+    assert rule_results[0]["detail"]["paragraph_indices"] == [1]
+    assert rule_results[0]["detail"]["snippet"] == "这一段太长，需要拆分。"
 
     llm_audit = client.post("/api/books/chapter-api/chapters/2/llm-audit", json={"text": "测试正文"})
     assert llm_audit.status_code == 200
@@ -64,6 +73,8 @@ def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_servi
     revised = client.post(f"/api/books/{book_id}/chapters/3/revise", json={"mode": "polish"})
     assert revised.status_code == 200
     assert revised.json()["data"]["status"] == "revised"
+    assert revised.json()["data"]["revision_diff"]["summary"]["changed_blocks"] == 1
+    assert revised.json()["data"]["revision_diff"]["blocks"][0]["kind"] == "replace"
     assert mock_chapter_service.last_revision_mode == "polish"
 
     approved = client.post(f"/api/books/{book_id}/chapters/3/approve")
@@ -81,7 +92,121 @@ def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_servi
 
     status = client.get(f"/api/books/{book_id}/chapters/3/status")
     assert status.status_code == 200
-    assert status.json()["data"]["status"] == "exported"
+    status_data = status.json()["data"]
+    assert status_data["status"] == "exported"
+    assert status_data["text"] == "完整管线正文"
+    assert status_data["actual_chars"] == 6
+    assert status_data["content_hash"] == _fingerprint("完整管线正文")
+
+
+def test_export_preview_supports_tomato_markdown_and_qidian(client, mock_chapter_service):
+    mock_chapter_service.status_result = ChapterResult(
+        "chapter-api-preview",
+        5,
+        ChapterStatus.DRAFTED,
+        "异常回响",
+        "# 标题\n\n**林默**站在副楼门口。\n\n提示音从走廊尽头传来。",
+    )
+
+    tomato = client.get("/api/books/chapter-api-preview/chapters/5/export-preview?fmt=tomato_txt")
+    markdown = client.get("/api/books/chapter-api-preview/chapters/5/export-preview?fmt=markdown")
+    qidian = client.get("/api/books/chapter-api-preview/chapters/5/export-preview?fmt=qidian_txt")
+
+    assert tomato.status_code == 200
+    tomato_data = tomato.json()["data"]
+    assert tomato_data["format"] == "tomato_txt"
+    assert tomato_data["preview_text"].splitlines()[0] == "第5章 异常回响"
+    assert "**" not in tomato_data["preview_text"]
+    assert "#" not in tomato_data["preview_text"]
+    assert "word_count_out_of_range" in tomato_data["format_errors"]
+
+    assert markdown.status_code == 200
+    assert markdown.json()["data"]["preview_text"] == "## 第5章\n\n# 标题\n\n**林默**站在副楼门口。\n\n提示音从走廊尽头传来。"
+    assert markdown.json()["data"]["format_errors"] == []
+
+    assert qidian.status_code == 200
+    assert qidian.json()["data"]["preview_text"] == "第5章\n\n# 标题\n\n**林默**站在副楼门口。\n\n提示音从走廊尽头传来。"
+    assert qidian.json()["data"]["format_errors"] == []
+
+
+def test_export_preview_rejects_invalid_format_and_missing_chapter(client):
+    invalid = client.get("/api/books/chapter-api-preview/chapters/5/export-preview?fmt=docx")
+    assert invalid.status_code == 400
+    assert invalid.json()["error"]["code"] == "INVALID_PARAMETER"
+
+    missing = client.get("/api/books/chapter-api-preview/chapters/99/export-preview?fmt=tomato_txt")
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "CHAPTER_NOT_FOUND"
+
+
+def test_update_chapter_text_returns_needs_review_and_content_metadata(client, mock_chapter_service):
+    resp = client.put(
+        "/api/books/chapter-api-edit/chapters/3/text",
+        json={"text": "林默保存了人工修改。", "expected_hash": "abcd1234"},
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["status"] == "needs_review"
+    assert data["text"] == "林默保存了人工修改。"
+    assert data["actual_chars"] == 9
+    assert data["content_hash"] == _fingerprint("林默保存了人工修改。")
+    assert mock_chapter_service.last_update_text == (
+        "chapter-api-edit",
+        3,
+        "林默保存了人工修改。",
+        "abcd1234",
+    )
+
+
+def test_update_chapter_text_maps_missing_empty_and_conflict_errors(client, mock_chapter_service):
+    mock_chapter_service.raise_update_not_found = True
+    missing = client.put("/api/books/chapter-api-edit/chapters/9/text", json={"text": "人工修改。"})
+    assert missing.status_code == 404
+    assert missing.json()["error"]["code"] == "CHAPTER_NOT_FOUND"
+
+    mock_chapter_service.raise_update_not_found = False
+    mock_chapter_service.raise_update_empty = True
+    empty = client.put("/api/books/chapter-api-edit/chapters/9/text", json={"text": "人工修改。"})
+    assert empty.status_code == 409
+    assert empty.json()["error"]["code"] == "CHAPTER_EMPTY"
+    assert empty.json()["error"]["message"] == "空章节请先使用 draft 管线生成正文"
+
+    mock_chapter_service.raise_update_empty = False
+    mock_chapter_service.raise_update_conflict = True
+    conflict = client.put(
+        "/api/books/chapter-api-edit/chapters/9/text",
+        json={"text": "人工修改。", "expected_hash": "stale"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"]["code"] == "CONTENT_CONFLICT"
+    assert conflict.json()["error"]["message"] == "章节内容已被修改，请刷新后重试"
+
+
+def test_export_preview_returns_tomato_format_and_errors(client, mock_chapter_service):
+    mock_chapter_service.status_result = ChapterResult(
+        "chapter-api-preview",
+        4,
+        ChapterStatus.DRAFTED,
+        "第4章",
+        "林默抬头。",
+    )
+
+    resp = client.get("/api/books/chapter-api-preview/chapters/4/export-preview?fmt=tomato_txt")
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["format"] == "tomato_txt"
+    assert data["preview_text"].startswith("第4章")
+    assert not data["preview_text"].startswith("第4章 第4章")
+    assert "word_count_out_of_range" in data["format_errors"]
+
+
+def test_export_preview_returns_404_for_missing_chapter(client):
+    resp = client.get("/api/books/chapter-api-preview/chapters/404/export-preview?fmt=markdown")
+
+    assert resp.status_code == 404
+    assert resp.json()["error"]["code"] == "CHAPTER_NOT_FOUND"
 
 
 def test_chapter_run_invalid_transition_returns_409_and_sse_error(client, mock_chapter_service):
@@ -99,6 +224,18 @@ def test_sse_endpoint_can_connect(client):
     resp = client.get("/openapi.json")
     assert resp.status_code == 200
     assert "/api/events" in resp.json()["paths"]
+
+
+def test_llm_sse_event_helpers_shape():
+    chunk = make_chunk_event("book-a", 2, "林默")
+    progress = make_progress_event("book-a", 2, 1, 3)
+
+    assert chunk.type == "llm:chunk"
+    assert chunk.stage == "draft"
+    assert chunk.detail == {"text": "林默"}
+    assert progress.type == "llm:progress"
+    assert progress.message == "正在生成第 1/3 段"
+    assert progress.detail == {"completed": 1, "total": 3}
 
 
 def test_sse_manager_filters_by_book_and_chapter():
@@ -124,3 +261,7 @@ async def _collect_replayed_events(manager: SSEManager, book_id: str, chapter_no
         return [json.loads(item) for item in items]
     finally:
         await subscription.aclose()
+
+
+def _fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]

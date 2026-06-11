@@ -18,6 +18,8 @@ class PipelineEvent(BaseModel):
         "pipeline:complete",
         "pipeline:error",
         "audit:complete",
+        "llm:chunk",
+        "llm:progress",
     ]
     book_id: str
     chapter_no: int
@@ -73,3 +75,26 @@ class SSEManager:
 
 
 sse_manager = SSEManager()
+
+
+def make_chunk_event(book_id: str, chapter_no: int, text: str) -> PipelineEvent:
+    """Create an event carrying a streamed LLM text chunk."""
+    return PipelineEvent(
+        type="llm:chunk",
+        book_id=book_id,
+        chapter_no=chapter_no,
+        stage="draft",
+        detail={"text": text},
+    )
+
+
+def make_progress_event(book_id: str, chapter_no: int, completed: int, total: int) -> PipelineEvent:
+    """Create an event reporting chunked generation progress."""
+    return PipelineEvent(
+        type="llm:progress",
+        book_id=book_id,
+        chapter_no=chapter_no,
+        stage="draft",
+        message=f"正在生成第 {completed}/{total} 段",
+        detail={"completed": completed, "total": total},
+    )

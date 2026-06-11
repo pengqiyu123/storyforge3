@@ -200,11 +200,11 @@ class ProviderConfigManager:
 
 def build_provider_from_profile(profile: dict) -> dict:
     return {
-        "key": profile["provider_key"],
-        "label": profile["label"],
-        "base_url": profile["base_url"],
-        "api_key": profile["api_key"],
-        "model_id": profile["model_id"],
+        "key": str(profile.get("provider_key") or "").strip(),
+        "label": str(profile.get("label") or "").strip(),
+        "base_url": str(profile.get("base_url") or "").strip(),
+        "api_key": str(profile.get("api_key") or "").strip(),
+        "model_id": str(profile.get("model_id") or "").strip(),
         "enabled": bool(profile.get("enabled") and profile.get("api_key")),
         "source": profile.get("source"),
         "cc_app_type": profile.get("cc_app_type"),

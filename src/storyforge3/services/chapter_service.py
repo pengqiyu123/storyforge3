@@ -1,19 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+import hashlib
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
 from storyforge3.audit import thresholds as T
 from storyforge3.audit.chinese_text import count_chinese_chars
+from storyforge3.audit.revision_diff import build_revision_diff
 from storyforge3.audit.llm_auditor import LLMAuditResult, LLMAuditor
 from storyforge3.audit.revision_modes import RevisionMode, RevisionModeRecommender, get_mode_config
 from storyforge3.audit.runner import AuditRunner
 from storyforge3.config import StoryForge3Config
 from storyforge3.export.formatter import PlatformFormatter
+from storyforge3.fanfic.dimensions import FANFIC_DIMENSIONS, get_fanfic_dimension_config
+from storyforge3.fanfic.prompt_sections import build_character_voice_profiles, build_fanfic_canon_section, build_fanfic_mode_instructions
 from storyforge3.llm.chunked_generator import ChunkedGenerator
 from storyforge3.llm.factory import create_llm_service
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, Character, CharacterRole, WorldConfig
+from storyforge3.logging.pipeline_logger import PipelineLogger
+from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, Character, CharacterRole, FanficCanon, FanficMode, WorldConfig
 from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.export_service import ExportService
 from storyforge3.services.length_normalizer import LengthNormalizationResult, LengthNormalizer
@@ -23,6 +28,18 @@ from storyforge3.truth.extractor import TruthExtractor
 from storyforge3.truth.retriever import TruthRetriever
 from storyforge3.truth.store import TruthStore
 from storyforge3.workflow import ChapterWorkflow
+
+
+CHAPTER_DRAFT_PROMPT = """你是中文网文正文作者。根据章节目标、世界观、角色和前文上下文，直接输出章节正文。
+写作约束：
+- 每个场景必须推进行动、信息或关系变化，不写空转说明。
+- 角色对话要有辨识度，不能所有人都一个腔调；对话前后用动作承接。
+- 用动作、表情、环境替代直白情绪描述。
+- 不要用“他感到”“他意识到”“他明白了”“心中一震”“恍然大悟”等内心独白标记词。
+- 不要用“总的来说”“综上所述”“就这样”等总结性语言。
+- 场景切换要自然，不要硬用“与此同时”“另一边”跳切。
+- 不要出现系统实现、工程术语、提示词、审计规则或解释性说明。
+只输出章节正文，不要 Markdown 包装。"""
 
 
 class ChapterService:
@@ -37,6 +54,7 @@ class ChapterService:
         truth_extractor: TruthExtractor | None = None,
         truth_store: TruthStore | None = None,
         prompt_registry: PromptRegistry | None = None,
+        pipeline_logger: PipelineLogger | None = None,
     ) -> None:
         self.config = config
         self.llm = llm or create_llm_service(config)
@@ -50,6 +68,7 @@ class ChapterService:
         self.export_service = ExportService(self.storage, self.paths)
         self.truth_retriever = TruthRetriever(self.truth_store.database)
         self.revision_recommender = RevisionModeRecommender()
+        self.pipeline_logger = pipeline_logger
 
     async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
         template = self.prompt_registry.get_latest("plan")
@@ -59,9 +78,16 @@ class ChapterService:
         goal = self._extract_goal(outline)
         return ChapterIntent(chapter_no, goal, outline_node=outline)
 
-    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None) -> str:
+    async def draft(
+        self,
+        book_id: str,
+        chapter_no: int,
+        intent: ChapterIntent | None = None,
+        *,
+        on_chunk_progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> str:
         intent = intent or await self.plan(book_id, chapter_no)
-        prompt = "你是中文网文作者。直接输出章节正文。"
+        prompt = CHAPTER_DRAFT_PROMPT
         style_prompt = self._style_prompt_fragment(book_id)
         if style_prompt:
             prompt = f"{prompt}\n\n{style_prompt}"
@@ -81,9 +107,10 @@ class ChapterService:
                 max_chars=4000,
             ),
         }
+        payload.update(self._fanfic_draft_context(book_id))
         target_chars = self._load_target_chapter_chars(book_id)
         if _should_chunk_draft(target_chars):
-            text = await ChunkedGenerator(self.llm).generate(
+            text = await ChunkedGenerator(self.llm, on_progress=on_chunk_progress).generate(
                 "chapter_draft",
                 prompt,
                 intent.outline_node or intent.goal,
@@ -103,11 +130,14 @@ class ChapterService:
 
     async def run_llm_audit(self, book_id: str, chapter_no: int, text: str) -> LLMAuditResult:
         auditor = LLMAuditor(self.llm, self.prompt_registry, self.config)
+        fanfic_context, fanfic_dimensions = self._fanfic_audit_context(book_id)
         return await auditor.audit(
             chapter_text=text,
             characters=tuple(self._load_characters(book_id)),
             world=self._load_world(book_id),
             previous_truth=self.truth_store.load(book_id, chapter_no - 1) if chapter_no > 1 else None,
+            extra_context=fanfic_context,
+            extra_dimensions=fanfic_dimensions,
         )
 
     async def normalize_length(
@@ -126,8 +156,22 @@ class ChapterService:
         )
 
     async def revise(self, book_id: str, chapter_no: int, mode: str = "auto") -> ChapterResult:
-        audit = await self.audit(book_id, chapter_no)
-        text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no)) or ""
+        text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
+        if text is None:
+            raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
+        audit = self.audit_runner.run_audit(chapter_no, text)
+        current_status = self._workflow_status(book_id, chapter_no)
+        title = f"第{chapter_no}章"
+        if audit.passed:
+            return ChapterResult(
+                book_id,
+                chapter_no,
+                current_status,
+                title,
+                text,
+                audit=audit,
+                error="audit_passed_no_revision_needed",
+            )
         failed = self.revision_recommender.failed_results(audit.rule_results)
         if mode == "auto":
             selected_mode = self.revision_recommender.recommend(
@@ -141,13 +185,28 @@ class ChapterService:
             mode_source = "manual"
         mode_config = get_mode_config(selected_mode)
         self._render_revision_prompt(selected_mode, mode_config.prompt_constraints, failed)
+        self._write_before_snapshot(book_id, chapter_no, text)
+        workflow = ChapterWorkflow(self.config, client=self.llm, registry=self.prompt_registry, logger=self.pipeline_logger)
+        ctx = await workflow.step_import(book_id)
+        revised_text = await workflow.step_revise(
+            ctx,
+            chapter_no,
+            text,
+            audit,
+            revision_round=0,
+            mode_override=selected_mode,
+        )
+        self.storage.write_text(self.paths.chapter_file(book_id, chapter_no), revised_text)
+        self._advance_revision_state(book_id, chapter_no)
+        revised_audit = self.audit_runner.run_audit(chapter_no, revised_text)
         return ChapterResult(
             book_id,
             chapter_no,
-            self._workflow_status(book_id, chapter_no),
-            f"第{chapter_no}章",
-            text,
-            audit=audit,
+            ChapterStatus.REVISED,
+            title,
+            revised_text,
+            audit=revised_audit,
+            revision_diff=build_revision_diff(text, revised_text),
             error=f"revision_mode={selected_mode.value};mode_source={mode_source}",
         )
 
@@ -164,6 +223,29 @@ class ChapterService:
             return None
         return ChapterResult(book_id, chapter_no, self._workflow_status(book_id, chapter_no), f"第{chapter_no}章", text)
 
+    async def update_text(
+        self,
+        book_id: str,
+        chapter_no: int,
+        text: str,
+        *,
+        expected_hash: str | None = None,
+    ) -> ChapterResult:
+        current = await self.get_status(book_id, chapter_no)
+        if current is None:
+            raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
+        if not current.text.strip():
+            raise ValueError("空章节请先使用 draft 管线生成正文")
+        if expected_hash and _content_fingerprint(current.text) != expected_hash:
+            raise ValueError("章节内容已被修改，请刷新后重试")
+
+        self._write_before_snapshot(book_id, chapter_no, current.text)
+        self.storage.write_text(self.paths.chapter_file(book_id, chapter_no), text)
+        from storyforge3.state.machine import ChapterStateMachine
+
+        ChapterStateMachine(self.paths.chapter_states(book_id)).force_needs_review(book_id, chapter_no, reason="manual_edit")
+        return ChapterResult(book_id, chapter_no, ChapterStatus.NEEDS_REVIEW, current.title, text)
+
     async def run_full_pipeline(
         self,
         book_id: str,
@@ -171,7 +253,7 @@ class ChapterService:
         *,
         human_confirm: Callable[[ChapterResult], bool] | None = None,
     ) -> ChapterResult:
-        workflow = ChapterWorkflow(self.config, client=self.llm, registry=self.prompt_registry)
+        workflow = ChapterWorkflow(self.config, client=self.llm, registry=self.prompt_registry, logger=self.pipeline_logger)
         return await workflow.run(book_id, chapter_no, human_confirm=human_confirm)
 
     @staticmethod
@@ -183,6 +265,34 @@ class ChapterService:
         from storyforge3.state.machine import ChapterStateMachine
 
         return ChapterStateMachine(self.paths.chapter_states(book_id)).current_status(book_id, chapter_no)
+
+    def _advance_revision_state(self, book_id: str, chapter_no: int) -> None:
+        from storyforge3.state.machine import ChapterStateMachine
+
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        while True:
+            current = machine.current_status(book_id, chapter_no)
+            if current == ChapterStatus.REVISED:
+                return
+            if current == ChapterStatus.NEEDS_REVISION:
+                machine.advance(book_id, chapter_no, ChapterStatus.REVISED)
+                return
+            if current == ChapterStatus.AUDITED:
+                machine.advance(book_id, chapter_no, ChapterStatus.NEEDS_REVISION)
+                continue
+            if current == ChapterStatus.DRAFTED:
+                machine.advance(book_id, chapter_no, ChapterStatus.AUDITED)
+                continue
+            if current == ChapterStatus.PLANNED:
+                machine.advance(book_id, chapter_no, ChapterStatus.DRAFTED)
+                continue
+            if current == ChapterStatus.EMPTY:
+                machine.advance(book_id, chapter_no, ChapterStatus.PLANNED)
+                continue
+            raise ValueError(f"章节当前状态 {current.value} 不支持 revise")
+
+    def _write_before_snapshot(self, book_id: str, chapter_no: int, text: str) -> None:
+        self.storage.write_text(self.paths.chapter_file(book_id, chapter_no).with_suffix(".before.md"), text)
 
     def _render_revision_prompt(self, mode: RevisionMode, extra_constraints: tuple[str, ...], failed: list) -> str:
         template = self.prompt_registry.get_latest("revise")
@@ -226,6 +336,69 @@ class ChapterService:
         samples = data.get("style_reference_samples")
         reference_samples = [str(sample) for sample in samples] if isinstance(samples, list) else []
         return StyleImitator(self.llm).fingerprint_to_prompt(fingerprint, reference_samples)
+
+    def _fanfic_draft_context(self, book_id: str) -> dict[str, str]:
+        mode = self._get_fanfic_mode(book_id)
+        if mode is None:
+            return {}
+        canon = self._load_fanfic_canon(book_id)
+        if canon is None:
+            return {}
+        voice_profiles = build_character_voice_profiles(canon.full_document)
+        return {
+            "fanfic_canon": build_fanfic_canon_section(canon),
+            "character_voice_profiles": voice_profiles,
+            "fanfic_mode_instructions": build_fanfic_mode_instructions(mode),
+        }
+
+    def _fanfic_audit_context(self, book_id: str) -> tuple[str, tuple[str, ...]]:
+        mode = self._get_fanfic_mode(book_id)
+        if mode is None:
+            return "", ()
+        canon = self._load_fanfic_canon(book_id)
+        if canon is None:
+            return "", ()
+        config = get_fanfic_dimension_config(mode)
+        dimension_lines = []
+        for dimension in FANFIC_DIMENSIONS:
+            dimension_id = int(dimension["id"])
+            severity = config["severity_overrides"][dimension_id].value
+            note = config["notes"][dimension_id]
+            dimension_lines.append(f"- {dimension_id} {dimension['name']} [{severity}]：{note}")
+        context = "\n".join(
+            [
+                f"## 同人审计模式：{mode.value}",
+                "",
+                "### 同人审计维度",
+                *dimension_lines,
+                "",
+                build_fanfic_canon_section(canon),
+                "",
+                build_character_voice_profiles(canon.full_document),
+                "",
+                build_fanfic_mode_instructions(mode),
+            ]
+        )
+        return context, tuple(str(dimension["name"]) for dimension in FANFIC_DIMENSIONS)
+
+    def _get_fanfic_mode(self, book_id: str) -> FanficMode | None:
+        data = self.storage.read_json(self.paths.book_meta(book_id)) or {}
+        value = str(data.get("fanfic_mode") or "").strip()
+        if not value:
+            return None
+        try:
+            return FanficMode(value)
+        except ValueError:
+            return None
+
+    def _load_fanfic_canon(self, book_id: str) -> FanficCanon | None:
+        data = self.storage.read_json(self.paths.book_dir(book_id) / "fanfic_canon.json")
+        if not data:
+            return None
+        try:
+            return FanficCanon(**{**data, "mode": FanficMode(str(data.get("mode", "")))})
+        except ValueError:
+            return None
 
     @staticmethod
     def _length_hard_range(target_chars: int) -> tuple[int, int]:
@@ -285,3 +458,7 @@ class ChapterService:
 
 def _should_chunk_draft(target_chars: int | None) -> bool:
     return target_chars is not None and target_chars > 800
+
+
+def _content_fingerprint(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]

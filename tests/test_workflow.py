@@ -233,6 +233,21 @@ def test_workflow_truth_failure_needs_review(config, book_workspace: Path, sampl
     assert result.audit is not None
 
 
+def test_workflow_requires_persisted_truth_before_export(config, book_workspace: Path, sample_chapter_text: str) -> None:
+    workflow = ChapterWorkflow(config, client=MockClient(sample_chapter_text))
+
+    def drop_truth(_book_id, _truth):
+        return book_workspace / "truth" / "chapter-0008.json"
+
+    workflow.truth_store.save = drop_truth
+
+    result = run(workflow.run("lurenjia", 8, human_confirm=lambda _: True))
+
+    assert result.status == ChapterStatus.NEEDS_REVIEW
+    assert "Truth 提取未完成" in (result.error or "")
+    assert not (book_workspace / "exports" / "chapter-0008.txt").exists()
+
+
 def test_workflow_normalizes_draft_before_audit_and_export(config, book_workspace: Path) -> None:
     write_book_meta(book_workspace, target_chars=800)
     normalized_text = valid_chapter_text(1000)

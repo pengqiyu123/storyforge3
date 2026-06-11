@@ -27,6 +27,10 @@ class StoryForge3Config(BaseSettings):
     # ── Storage ─────────────────────────────────────────────
     books_dir: str = "books"
 
+    # ── Snapshots ───────────────────────────────────────────
+    snapshot_enabled: bool = True
+    snapshot_max_count: int = 5
+
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
 
     def model_for_task(self, task_name: str) -> str | None:

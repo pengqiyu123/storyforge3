@@ -15,7 +15,12 @@ router = APIRouter(prefix="/providers", tags=["providers"])
 @router.get("")
 async def list_providers(config: StoryForge3Config = Depends(get_config)):
     manager = ProviderConfigManager(Path(config.providers_config_dir))
-    return ok(manager.list_imported())
+    active = manager.get_active()
+    active_key = active.get("provider_key") if active else None
+    providers = manager.list_imported()
+    for provider in providers:
+        provider["active"] = provider.get("provider_key") == active_key
+    return ok(providers)
 
 
 @router.get("/health")

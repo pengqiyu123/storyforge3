@@ -12,12 +12,12 @@ class PlatformFormatter:
             cleaned = self._clean_markdown(raw.strip())
             if cleaned:
                 paragraphs.append(cleaned)
-        return "\n\n".join([f"第{chapter_no}章 {title}", *paragraphs])
+        return "\n\n".join([self._chapter_heading(title, chapter_no), *paragraphs])
 
     def check_format(self, title: str, chapter_no: int, formatted_text: str) -> list[str]:
         errors: list[str] = []
         lines = formatted_text.splitlines()
-        if not lines or lines[0] != f"第{chapter_no}章 {title}":
+        if not lines or lines[0] != self._chapter_heading(title, chapter_no):
             errors.append("chapter_header_format")
         if any(pattern in formatted_text for pattern in ("#", "**", "---", "[](", "](")):
             errors.append("markdown_artifacts")
@@ -36,3 +36,11 @@ class PlatformFormatter:
         text = text.replace("---", "")
         text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
         return text.strip()
+
+    @staticmethod
+    def _chapter_heading(title: str, chapter_no: int) -> str:
+        normalized = title.strip()
+        default_heading = f"第{chapter_no}章"
+        if not normalized or normalized == default_heading:
+            return default_heading
+        return f"{default_heading} {normalized}"

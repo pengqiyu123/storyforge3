@@ -1,4 +1,5 @@
 __pycache__/
+node_modules/
 *.pyc
 *.pyo
 *.db
@@ -22,4 +23,8 @@ Thumbs.db
 .pytest-tmp*/
 .ruff_cache/
 dist/
+web/dist/
+src-tauri/target/
+src-tauri/gen/
+*.tsbuildinfo
 *.egg-info/

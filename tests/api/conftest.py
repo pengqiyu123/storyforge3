@@ -10,7 +10,19 @@ from fastapi.testclient import TestClient
 
 from storyforge3.config import StoryForge3Config
 from storyforge3.audit.llm_auditor import LLMAuditIssue, LLMAuditResult
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, TruthData
+from storyforge3.models import (
+    AuditResult,
+    ChapterIntent,
+    ChapterResult,
+    ChapterStatus,
+    RevisionDiff,
+    RevisionDiffBlock,
+    RevisionDiffSummary,
+    RuleCategory,
+    RuleResult,
+    RuleSeverity,
+    TruthData,
+)
 from storyforge3.services.daemon_service import DaemonRunResult
 from storyforge3.services.length_normalizer import LengthNormalizationResult
 from storyforge3.state.machine import InvalidTransitionError
@@ -106,9 +118,13 @@ class FakeChapterService:
     def __init__(self) -> None:
         self.raise_audit_not_found = False
         self.raise_run_transition = False
+        self.raise_update_not_found = False
+        self.raise_update_empty = False
+        self.raise_update_conflict = False
         self.last_draft_intent: ChapterIntent | None = None
         self.last_revision_mode: str | None = None
         self.last_export_format: str | None = None
+        self.last_update_text: tuple[str, int, str, str | None] | None = None
         self.status_result: ChapterResult | None = None
 
     async def plan(self, _book_id: str, chapter_no: int) -> ChapterIntent:
@@ -122,8 +138,10 @@ class FakeChapterService:
             style_emphasis=("短句推进",),
         )
 
-    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None) -> str:
+    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None, *, on_chunk_progress=None) -> str:
         self.last_draft_intent = intent
+        if on_chunk_progress is not None:
+            await on_chunk_progress(1, 2)
         text = "林默停在副楼门口。\n\n提示音从走廊深处响了一下。"
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.DRAFTED, f"第{chapter_no}章", text)
         return text
@@ -137,7 +155,16 @@ class FakeChapterService:
             blocking_issues=(),
             warnings=("节奏可继续加强",),
             info=("机械规则通过",),
-            rule_results=(),
+            rule_results=(
+                RuleResult(
+                    "info_dump",
+                    False,
+                    RuleSeverity.WARNING,
+                    RuleCategory.STRUCTURE,
+                    "长段信息倾倒",
+                    {"paragraph_indices": [1], "snippet": "这一段太长，需要拆分。"},
+                ),
+            ),
         )
 
     async def run_llm_audit(self, _book_id: str, _chapter_no: int, _text: str) -> LLMAuditResult:
@@ -171,7 +198,36 @@ class FakeChapterService:
 
     async def revise(self, book_id: str, chapter_no: int, mode: str = "auto") -> ChapterResult:
         self.last_revision_mode = mode
-        return ChapterResult(book_id, chapter_no, ChapterStatus.REVISED, f"第{chapter_no}章", "修订正文")
+        return ChapterResult(
+            book_id,
+            chapter_no,
+            ChapterStatus.REVISED,
+            f"第{chapter_no}章",
+            "修订正文",
+            revision_diff=RevisionDiff(
+                unit="paragraph",
+                summary=RevisionDiffSummary(
+                    changed_blocks=1,
+                    added_blocks=0,
+                    removed_blocks=0,
+                    before_chars=6,
+                    after_chars=4,
+                ),
+                blocks=(RevisionDiffBlock(kind="replace", before_text="修订前正文", after_text="修订正文"),),
+            ),
+        )
+
+    async def update_text(self, book_id: str, chapter_no: int, text: str, *, expected_hash: str | None = None) -> ChapterResult:
+        self.last_update_text = (book_id, chapter_no, text, expected_hash)
+        if self.raise_update_not_found:
+            raise FileNotFoundError("chapter not found")
+        if self.raise_update_empty:
+            raise ValueError("空章节请先使用 draft 管线生成正文")
+        if self.raise_update_conflict:
+            raise ValueError("章节内容已被修改，请刷新后重试")
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.NEEDS_REVIEW, f"第{chapter_no}章", text)
+        self.status_result = result
+        return result
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
         return ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "已确认正文")

@@ -61,6 +61,8 @@ def test_golden_three_hook_rejects_flat_daily_opening() -> None:
 
     assert result.passed is False
     assert result.detail["score"] == 0
+    assert result.detail["paragraph_indices"] == [0]
+    assert result.detail["snippet"] == "今天天气不错，林默走在路上，想着下午的考试。"
 
 
 def test_golden_three_hook_accepts_multiple_legacy_keywords() -> None:
@@ -79,3 +81,34 @@ def test_markdown_artifacts_does_not_match_empty_strings() -> None:
 
     assert result.passed is True
     assert result.detail["observed"] == 0
+
+
+def test_info_dump_reports_longest_paragraph_location() -> None:
+    long_paragraph = "林默" * 230
+    text = f"林默推开门。\n\n短段落。\n\n{long_paragraph}"
+
+    result = RULE_REGISTRY["info_dump"](build_mechanical_context(3, text))
+
+    assert result.passed is False
+    assert result.detail["paragraph_indices"] == [2]
+    assert result.detail["snippet"].startswith("林默林默")
+    assert len(result.detail["snippet"]) <= 201
+
+
+def test_forbidden_patterns_reports_matching_paragraph_location() -> None:
+    text = "林默推开门。\n\n以下是本章正文，林默继续向前。\n\n声音停了。"
+
+    result = RULE_REGISTRY["forbidden_patterns"](build_mechanical_context(3, text))
+
+    assert result.passed is False
+    assert result.detail["paragraph_indices"] == [1]
+    assert result.detail["snippet"] == "以下是本章正文，林默继续向前。"
+
+
+def test_density_rules_do_not_report_paragraph_location() -> None:
+    text = "似乎" * 30 + "林默推开门。"
+
+    result = RULE_REGISTRY["hedge_density"](build_mechanical_context(3, text))
+
+    assert result.passed is False
+    assert "paragraph_indices" not in result.detail

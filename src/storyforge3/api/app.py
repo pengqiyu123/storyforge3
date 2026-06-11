@@ -12,10 +12,14 @@ from storyforge3.api.routes.characters import router as characters_router
 from storyforge3.api.routes.daemon import router as daemon_router
 from storyforge3.api.routes.events import router as events_router
 from storyforge3.api.routes.export import router as export_router
+from storyforge3.api.routes.fanfic import router as fanfic_router
 from storyforge3.api.routes.health import router as health_router
 from storyforge3.api.routes.providers import router as providers_router
+from storyforge3.api.routes.short_story import router as short_story_router
+from storyforge3.api.routes.snapshots import router as snapshots_router
 from storyforge3.api.routes.truth import router as truth_router
 from storyforge3.api.routes.volumes import router as volumes_router
+from storyforge3.api.routes.workspace import router as workspace_router
 from storyforge3.api.routes.world import router as world_router
 
 app = FastAPI(title="StoryForge3 API", version="0.1.0")
@@ -41,6 +45,10 @@ app.include_router(volumes_router, prefix="/api")
 app.include_router(chapters_router, prefix="/api")
 app.include_router(truth_router, prefix="/api")
 app.include_router(export_router, prefix="/api")
+app.include_router(fanfic_router, prefix="/api")
+app.include_router(short_story_router, prefix="/api")
+app.include_router(snapshots_router, prefix="/api")
 app.include_router(providers_router, prefix="/api")
 app.include_router(daemon_router, prefix="/api")
 app.include_router(events_router, prefix="/api")
+app.include_router(workspace_router, prefix="/api")

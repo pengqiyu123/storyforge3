@@ -12,7 +12,16 @@ from httpx import ASGITransport, AsyncClient
 from storyforge3.api.app import app
 from storyforge3.config import StoryForge3Config
 from storyforge3.audit.llm_auditor import LLMAuditIssue, LLMAuditResult
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, TruthData
+from storyforge3.models import (
+    AuditResult,
+    ChapterIntent,
+    ChapterResult,
+    ChapterStatus,
+    RevisionDiff,
+    RevisionDiffBlock,
+    RevisionDiffSummary,
+    TruthData,
+)
 from storyforge3.services.book_service import BookService
 from storyforge3.services.daemon_service import DaemonRunResult
 from storyforge3.services.length_normalizer import LengthNormalizationResult
@@ -56,8 +65,12 @@ def api_mock_llm():
 class ApiFakeChapterService:
     def __init__(self) -> None:
         self.audit_not_found = False
+        self.update_not_found = False
+        self.update_empty = False
+        self.update_conflict = False
         self.status_result: ChapterResult | None = None
         self.last_revision_mode: str | None = None
+        self.last_update_text: tuple[str, int, str, str | None] | None = None
 
     async def audit(self, _book_id: str, chapter_no: int) -> AuditResult:
         if self.audit_not_found:
@@ -86,7 +99,36 @@ class ApiFakeChapterService:
         if mode == "bad":
             raise ValueError("invalid revision mode: bad")
         self.last_revision_mode = mode
-        return ChapterResult(book_id, chapter_no, ChapterStatus.REVISED, f"第{chapter_no}章", "修订正文")
+        return ChapterResult(
+            book_id,
+            chapter_no,
+            ChapterStatus.REVISED,
+            f"第{chapter_no}章",
+            "修订正文",
+            revision_diff=RevisionDiff(
+                unit="paragraph",
+                summary=RevisionDiffSummary(
+                    changed_blocks=1,
+                    added_blocks=0,
+                    removed_blocks=0,
+                    before_chars=6,
+                    after_chars=4,
+                ),
+                blocks=(RevisionDiffBlock(kind="replace", before_text="修订前正文", after_text="修订正文"),),
+            ),
+        )
+
+    async def update_text(self, book_id: str, chapter_no: int, text: str, *, expected_hash: str | None = None) -> ChapterResult:
+        self.last_update_text = (book_id, chapter_no, text, expected_hash)
+        if self.update_not_found:
+            raise FileNotFoundError("chapter not found")
+        if self.update_empty:
+            raise ValueError("空章节请先使用 draft 管线生成正文")
+        if self.update_conflict:
+            raise ValueError("章节内容已被修改，请刷新后重试")
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.NEEDS_REVIEW, f"第{chapter_no}章", text)
+        self.status_result = result
+        return result
 
     async def get_status(self, _book_id: str, _chapter_no: int) -> ChapterResult | None:
         return self.status_result
@@ -135,6 +177,30 @@ class ApiFakeTruthStore:
 
     def load(self, _book_id: str, _chapter_no: int) -> TruthData | None:
         return None
+
+    def load_history(self, _book_id: str) -> list[TruthData]:
+        return [
+            TruthData(
+                chapter_no=1,
+                source="runtime_native",
+                fact_assertions=("第1章事实。",),
+                character_updates=(),
+                relationship_updates=(),
+                hook_updates=(),
+                irreversible_facts=(),
+                notes=(),
+            ),
+            TruthData(
+                chapter_no=2,
+                source="runtime_native",
+                fact_assertions=("第2章事实。",),
+                character_updates=(),
+                relationship_updates=(),
+                hook_updates=(),
+                irreversible_facts=(),
+                notes=(),
+            ),
+        ]
 
     def save(self, book_id: str, truth: TruthData) -> Path:
         self.saved = (book_id, truth)

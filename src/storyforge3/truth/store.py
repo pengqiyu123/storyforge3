@@ -50,6 +50,21 @@ class TruthStore:
         chapter_no = int(paths[-1].stem.split("-")[-1])
         return self.load(book_id, chapter_no)
 
+    def load_history(self, book_id: str) -> list[TruthData]:
+        truth_dir = self.books_dir / book_id / "truth"
+        if not truth_dir.exists():
+            return []
+        results: list[TruthData] = []
+        for path in sorted(truth_dir.glob("chapter-*.json")):
+            try:
+                chapter_no = int(path.stem.split("-")[-1])
+            except ValueError:
+                continue
+            truth = self.load(book_id, chapter_no)
+            if truth is not None:
+                results.append(truth)
+        return results
+
     def detect_gaps(self, book_id: str, up_to_chapter: int) -> list[int]:
         return [chapter_no for chapter_no in range(1, up_to_chapter + 1) if self.load(book_id, chapter_no) is None]
 

@@ -28,6 +28,15 @@ def test_get_truth_by_chapter_returns_data_and_null(client):
     assert missing.json()["data"] is None
 
 
+def test_get_truth_history_returns_sorted_data(client):
+    resp = client.get("/api/books/truth-api/truth/history")
+
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert [item["chapter_no"] for item in data] == [1, 2]
+    assert data[1]["fact_assertions"] == ["林默进入检测中心。"]
+
+
 def test_extract_truth_saves_result_with_previous_truth(client, mock_truth_store, mock_truth_extractor):
     resp = client.post(
         "/api/books/truth-api/truth/extract",

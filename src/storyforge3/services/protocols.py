@@ -13,6 +13,7 @@ Design rules:
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Protocol
 
@@ -23,7 +24,13 @@ from storyforge3.models import (
     Character,
     ChapterIntent,
     ChapterResult,
+    FanficCanon,
+    FanficMode,
     Relationship,
+    ShortStoryConfig,
+    ShortStoryMeta,
+    ShortStoryPlan,
+    ShortStoryResult,
     TruthData,
     VolumeOutline,
     WorldConfig,
@@ -149,7 +156,14 @@ class ChapterServiceProtocol(Protocol):
 
     async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent: ...
 
-    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None) -> str: ...
+    async def draft(
+        self,
+        book_id: str,
+        chapter_no: int,
+        intent: ChapterIntent | None = None,
+        *,
+        on_chunk_progress: Callable[[int, int], Awaitable[None]] | None = None,
+    ) -> str: ...
 
     async def audit(self, book_id: str, chapter_no: int) -> AuditResult: ...
 
@@ -169,6 +183,15 @@ class ChapterServiceProtocol(Protocol):
         book_id: str,
         chapter_no: int,
         mode: str = "auto",
+    ) -> ChapterResult: ...
+
+    async def update_text(
+        self,
+        book_id: str,
+        chapter_no: int,
+        text: str,
+        *,
+        expected_hash: str | None = None,
     ) -> ChapterResult: ...
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult: ...
@@ -205,7 +228,8 @@ class AuditServiceProtocol(Protocol):
         context: str,
         *,
         model: str | None = None,
-    ) -> AuditResult: ...
+        book_id: str | None = None,
+    ) -> LLMAuditResult: ...
 
 
 # ── Truth management ────────────────────────────────────────
@@ -277,3 +301,47 @@ class StyleServiceProtocol(Protocol):
     def check_compliance(self, text: str, contract: object) -> object: ...
 
     def save_contract(self, book_id: str, contract: object) -> None: ...
+
+
+# ── Fanfiction canon ────────────────────────────────────────
+
+
+class FanficServiceProtocol(Protocol):
+    """Fanfiction canon import and management."""
+
+    async def import_canon(
+        self,
+        book_id: str,
+        source_text: str,
+        source_name: str,
+        mode: FanficMode,
+    ) -> FanficCanon: ...
+
+    async def refresh_canon(self, book_id: str, source_text: str) -> FanficCanon: ...
+
+    def get_canon(self, book_id: str) -> FanficCanon | None: ...
+
+
+# ── Short story pipeline ────────────────────────────────────
+
+
+class ShortStoryServiceProtocol(Protocol):
+    """Short story creation pipeline."""
+
+    async def create(self, config: ShortStoryConfig) -> ShortStoryMeta: ...
+
+    def list_stories(self) -> list[ShortStoryMeta]: ...
+
+    async def plan(self, book_id: str) -> ShortStoryPlan: ...
+
+    async def draft(self, book_id: str) -> str: ...
+
+    async def audit(self, book_id: str) -> AuditResult: ...
+
+    async def revise(self, book_id: str) -> ShortStoryResult: ...
+
+    async def export(self, book_id: str, fmt: str = "tomato_txt") -> Path: ...
+
+    async def run_full_pipeline(self, book_id: str) -> ShortStoryResult: ...
+
+    def get_status(self, book_id: str) -> ShortStoryResult | None: ...

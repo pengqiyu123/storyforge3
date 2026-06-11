@@ -33,6 +33,7 @@ def test_list_providers_returns_imported_profiles(client, config):
     providers = resp.json()["data"]
     assert providers[0]["provider_key"] == "codex"
     assert providers[0]["api_key"] == "secr****1234"
+    assert providers[0]["active"] is True
 
 
 def test_provider_health_uses_llm_service(client, mock_llm):

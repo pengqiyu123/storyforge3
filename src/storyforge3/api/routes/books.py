@@ -19,6 +19,7 @@ class CreateBookRequest(BaseModel):
     target_chapters: int = 100
     chapter_word_count: int = 2500
     language: str = "zh"
+    fanfic_mode: str = ""
 
 
 class UpdateStatusRequest(BaseModel):
@@ -37,6 +38,7 @@ class BookResponse(BaseModel):
     current_chapter: int
     created_at: str
     updated_at: str
+    fanfic_mode: str = ""
 
 
 def _meta_to_response(meta: BookMeta) -> BookResponse:
@@ -52,6 +54,7 @@ def _meta_to_response(meta: BookMeta) -> BookResponse:
         current_chapter=meta.current_chapter,
         created_at=meta.created_at,
         updated_at=meta.updated_at,
+        fanfic_mode=meta.fanfic_mode,
     )
 
 
@@ -67,6 +70,7 @@ async def create_book(
         target_chapters=req.target_chapters,
         chapter_word_count=req.chapter_word_count,
         language=req.language,
+        fanfic_mode=req.fanfic_mode,
     )
     meta = await service.create(config)
     return ok(_meta_to_response(meta))

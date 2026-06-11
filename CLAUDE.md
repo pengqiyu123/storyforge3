@@ -12,8 +12,10 @@ cd D:\python\Novel\storyforge3
 & .\.venv\Scripts\python.exe scripts\e2e_test.py
 & .\.venv\Scripts\python.exe scripts\e2e_multi_chapter.py
 storyforge3 health
-storyforge3 serve
+storyforge3 serve --port 8000
 ruff check .
+cd web; pnpm build; pnpm test
+cd ..\src-tauri; cargo test; cargo clippy -- -D warnings; cargo fmt --check; cargo build
 ```
 
 ## Architecture
@@ -65,7 +67,11 @@ Draft and revision payloads include world, character, and relevant truth context
 ### Service Boundary
 
 The 11 service protocols in `src/storyforge3/services/protocols.py` keep business logic ready for CLI, web, or desktop frontends.
-FastAPI exposes these services through REST routes plus `/api/events` SSE, and `storyforge3 serve` starts the API server.
+FastAPI exposes these services through REST routes plus `/api/events` SSE, and `storyforge3 serve --port 8000` starts the local API server.
+
+### Desktop Shell
+
+Phase 6D-1 adds a thin Tauri 2 desktop shell under `src-tauri/`. Rust only manages the Python FastAPI child process, health-check polling, desktop window lifecycle, tray menu, window state, and single-instance behavior. The React frontend still uses HTTP/SSE; in Tauri mode it targets `http://127.0.0.1:8000` instead of relying on Vite's `/api` proxy.
 
 ## Service Layer
 
@@ -102,7 +108,11 @@ Supported export formats:
 
 ## Current Validation
 
-- Unit suite baseline: 301 passed, `ruff check .` clean.
+Current status, history, and forward plan are split across `docs/current.md`, `docs/history.md`, and `docs/next.md`. Architecture decisions are recorded under `docs/adr/`.
+
+- Backend unit/API baseline: 498 passed with 91% coverage in the Phase 10A-1/10A-2 coverage run; `ruff check .` clean.
+- Frontend baseline: 62 passed, `pnpm build` clean except the existing large CodeMirror chunk warning.
+- Rust desktop baseline: 5 passed (4 prior + 1 sidecar candidates from 8A-1). `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo build` clean. Current environment has no `cargo`, so Rust was not rerun in 8A-1 verification.
 - FastAPI Phase 1 is complete: health, books, world, characters, volumes, chapters, truth, export, providers, daemon, and SSE routes are present in OpenAPI; `storyforge3 serve` startup was smoke-tested.
 - Active provider validation passed for `Codex 直连中转` / `gpt-5.5`.
 - Full production pipeline passes against `Codex 直连中转`: plan -> draft(chunked) -> normalize -> audit -> revise(patch) -> truth_extract -> export.
@@ -110,7 +120,25 @@ Supported export formats:
 - Latest 3-chapter E2E run: `books/e2e-multi-20260608-180847`, `success=True`, `3/3 exported`, `failed_chapters=0`, and cross-chapter truth retrieval passed.
 - E2E chapter details: chapter 1 = 2255 chars, audit passed, 1 patch revision, 45 truth entries; chapter 2 = 2706 chars, audit passed, 0 revisions, 74 truth entries; chapter 3 = 2940 chars, audit passed, 0 revisions, 52 truth entries.
 - Long-generation resilience uses 2s/4s/8s retry backoff, extra jitter for 504, 5 total attempts for 502/503/504, and 300s draft/revise timeout.
-- Phase 4 complete (301 tests): atomic writes (`storage.py` temp+rename), failure diagnostics (`_persist_diagnostics`), context source tracking (`ContextBlock`/`ContextPackage` with priority-based budget trimming), API integration tests (15 endpoints across 6 test files with `conftest_api.py` infrastructure).
+- Phase 4 complete: atomic writes (`storage.py` temp+rename), failure diagnostics (`_persist_diagnostics`), context source tracking (`ContextBlock`/`ContextPackage` with priority-based budget trimming), API integration tests (15 endpoints).
+- Phase 5A complete (Frontend MVP): React 19 + Vite 7 + TypeScript + Tailwind 4 + shadcn/ui, ~59 source files, 14 frontend tests. Book CRUD, Chapter Pipeline UI, Dashboard, SSE events, FocusMode.
+- Phase 5B skipped per user instruction.
+- Phase 5C complete (Infrastructure): PipelineLogger JSONL audit logging (7 hooks), 11/11 Service Protocol implementations (AuditService, TruthService, PromptService, StyleService added), export pre-snapshots (zip + meta.json + auto cleanup).
+- Phase 6A-1 complete: CodeMirror chapter editor with Chinese character count and read-only/edit modes.
+- Phase 6D-1 complete: Tauri scaffold, Python process manager, tray menu, local API health wait, desktop API/SSE URL resolution, and `serve --port` local binding.
+- Phase 7A-1 complete: manual chapter editing with SHA-256 optimistic locking, `PUT /text`, dirty-state UI, Ctrl+S save, and `NEEDS_REVIEW` transition after manual edits.
+- Phase 7A-2 complete: paragraph-level audit issue locations, `AuditResponse.rule_results`, clickable audit rows, snippet display, CodeMirror highlights, and scroll-to-issue in the chapter pipeline.
+- Phase 7A-3 complete: real chapter revise now reuses workflow patch/rework logic, revise/update save `.before.md` snapshots, `revision_diff` is returned in chapter responses, and the web chapter pipeline shows a paragraph-level before/after diff panel after revise.
+- Phase 7B-1 complete: `TruthStore.load_history()` + `GET /truth/history` endpoint; `TruthPanel` component with chapter-grouped 6-category display, irreversible-facts highlighting, chapter tabs, and search filter; "真相" tab added to BookDetailPage.
+- Phase 7B-2 complete: `SnapshotManager.restore_snapshot()` with whitelist (chapters/ + state/) and zip slip protection; `GET /snapshots` + `POST /restore` API; `SnapshotPanel` component (ported from CC-Switch BackupListSection) with confirm dialog; "快照" tab added to BookDetailPage.
+- Phase 7B-3 complete: `GET /export-preview?fmt=` endpoint with 3 formats (tomato_txt/markdown/qidian_txt), pure in-memory formatting; `ExportPreviewDialog` component with format selector, readonly preview, format errors display, copy-to-clipboard, and export download.
+- Phase 7C complete: MCP error recovery suggestions on 4 ValueError positions, `next_step` output fields on `ChapterStatusInfo`/`AuditSummary`/`ShortStoryStatusInfo`, structured `DraftResult` model for `draft_chapter`, `_suggest_next_step()`/`_suggest_short_story_next_step()` state-to-suggestion mappings, 15 tool docstrings with operation type tags (`[只读]`/`[创建]`/`[LLM 调用]`/`[修改]`), `MCP_INSTRUCTIONS` constant with long-form/short-form workflow descriptions, `docs/mcp-registration.md` with `claude mcp add` command, settings.json snippet, 15-tool reference table, and troubleshooting. Directives: `docs/directives/directive-7c-1.md` and `docs/directives/directive-7c-2.md`.
+- Phase 7D complete: GitHub Actions CI/CD (`ci.yml` backend/frontend/desktop jobs, `release.yml` Windows tag release + updater artifact verification), Tauri updater artifact config (`createUpdaterArtifacts` + pubkey placeholder), `docs/release-setup.md` signing guide, and user data management (`WorkspaceService`, `/api/workspace/validate|backup|restore`, `/settings` workspace UI with validate/backup/restore). Directives: `docs/directives/directive-7d-1.md` and `docs/directives/directive-7d-2.md`.
+- Phase 8A-1 complete: PyInstaller sidecar packaging (`scripts/desktop_entry.py`, `storyforge3-api.spec`, `build_sidecar.ps1`), Tauri integration (`tauri-plugin-shell`, `externalBin`, `shell:allow-spawn`), process_manager.rs refactored to sidecar-first/venv-fallback dual mode.
+- Phase 8B-1 complete: Service test gap closure (PromptService 7 tests, StyleService 7 tests, TruthService 6 tests). Service layer 17/17 test coverage.
+- Phase 8 progress: 2/2 sub-phases (8A-1 ✅, 8B-1 ✅).
+- Phase 8.5 complete: Dogfood RC user-facing docs (`README.md`, `docs/quickstart.md`, `docs/dogfood-protocol.md`), release setup sidecar/venv wording updated, cold-start smoke passed (temp venv install/import/CLI help, `storyforge3 serve`, `/api/health`, create-book API, Vite proxy). Active provider is `weShareAi / gpt-5.5` and `storyforge3 health` passes. Real write-a-chapter dogfood is documented but not executed yet. Directive: `docs/directives/directive-8-5.md`.
+- Phase 10A in progress (Validation phase): 10A-1 complete (`docs/current.md`, `docs/history.md`, `docs/next.md`, 5 ADRs, 91% coverage baseline); 10A-2 complete (`generate_text_stream()` for openai_chat/openai_responses, `ChunkedGenerator` on_progress callback, SSE `llm:progress`, truth-before-export guard); 10A-3 pending frontend progress UI (`PipelineProgress` component, `ChapterPipeline` SSE integration). Directives: `docs/directives/directive-10a-1.md`, `directive-10a-2.md`, `directive-10a-3.md`.
 
 ## Known Issues
 
