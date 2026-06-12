@@ -7,7 +7,7 @@
 
 StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、世界观、角色、卷纲、章节起草、审计、修订、truth 提取、导出、桌面端和 MCP 集成。
 
-当前战略阶段是 **Phase 10A 验证期**：真实 dogfood、长任务可观察化、覆盖率基线和 ADR 治理。
+当前战略阶段是 **Phase 10A-Dogfood**：Phase 10A 工程验证已完成（文档治理、流式后端、前端进度 UI），进入 dogfood 产品体验验证阶段。两轮 dogfood 完成后再设计 Phase 10B 指令。
 
 ## 已交付阶段
 
@@ -26,7 +26,7 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 | Phase 9 | Prompt 质量修复 | 完成 |
 | Phase 10A-1 | 覆盖率基线、文档拆分、ADR 启用 | 完成 |
 | Phase 10A-2 | 后端 LLM 流式输出、SSE 进度、dogfood 修复 | 完成 |
-| Phase 10A-3 | 前端 SSE 进度 UI | 待执行 |
+| Phase 10A-3 | 前端 SSE 进度 UI | 完成 |
 
 ## 代码量
 
@@ -40,8 +40,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前记录 |
 |----|----------|
-| 后端测试 | 498 passed, 1 warning（Phase 10A-2 后覆盖率运行） |
-| 前端测试 | 62 passed（Phase 8.5 基线，10A-2 未改前端） |
+| 后端测试 | 501 passed, 1 warning（Phase 10A-2 MEDIUM-1 后基线） |
+| 前端测试 | 71 passed（Phase 10A-3 后基线） |
 | Rust 测试 | 5 既有基线；本机无 Rust 时需在 CI 验证 |
 | Python lint | `ruff check .` clean |
 | Frontend build | `pnpm build` clean，仅 CodeMirror 大 chunk 警告 |
@@ -77,6 +77,6 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 ## 当前工作焦点
 
-1. 完成 Phase 10A-3 前端进度 UI。
-2. 继续用《别打了，我帮你们翻译还不行吗?》做复杂世界观 dogfood。
-3. 记录自动导演前置缺口：势力/文明实体模型、文明揭露进度、能力阶段追踪、RAG 语义召回。
+1. 执行 Dogfood Round 1：《别打了》第 2 章续写验证（复杂世界观 + truth 召回 + 进度 UI）。
+2. 执行 Dogfood Round 2：新书从零创建验证（建书 → world → characters → volume → 第 1 章）。
+3. 基于两轮 dogfood 结果设计 Phase 10B AutoDirector 指令。
