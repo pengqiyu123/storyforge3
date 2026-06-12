@@ -5,7 +5,14 @@ import { resolveApiUrl } from "@/api/client";
 import { chapterStatusKey } from "@/hooks/useChapters";
 
 export interface PipelineEvent {
-  type: "pipeline:start" | "pipeline:complete" | "pipeline:error";
+  type:
+    | "pipeline:start"
+    | "pipeline:progress"
+    | "pipeline:complete"
+    | "pipeline:error"
+    | "audit:complete"
+    | "llm:chunk"
+    | "llm:progress";
   book_id: string;
   chapter_no: number;
   stage?: string;
@@ -27,10 +34,10 @@ export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?:
       onEvent?.(event);
       queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
       if (event.type === "pipeline:error") {
-        toast.error(event.message || "管线运行失败");
+        toast.error(classifyPipelineErrorMessage(event));
       } else if (event.type === "pipeline:complete") {
         toast.success(event.message || `${event.stage ?? "管线"}完成`);
-      } else {
+      } else if (event.type === "pipeline:start") {
         toast.info(event.message || `${event.stage ?? "管线"}已启动`);
       }
     };
@@ -39,4 +46,15 @@ export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?:
     };
     return () => source.close();
   }, [bookId, chapterNo, onEvent, queryClient]);
+}
+
+function classifyPipelineErrorMessage(event: PipelineEvent): string {
+  const message = event.message || "管线运行失败";
+  if (message.includes("timed out") || message.includes("超时")) {
+    return "章节起草超时，请检查网络连接";
+  }
+  if (message.includes("rate limit") || message.includes("限流") || message.includes("429")) {
+    return "Provider 限流，请稍后重试";
+  }
+  return message;
 }

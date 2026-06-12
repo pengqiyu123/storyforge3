@@ -4,6 +4,20 @@ import type { PropsWithChildren } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { usePipelineEvents } from "./usePipelineEvents";
 
+const toastMocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  info: vi.fn(),
+  success: vi.fn()
+}));
+
+vi.mock("sonner", () => ({
+  toast: {
+    error: toastMocks.error,
+    info: toastMocks.info,
+    success: toastMocks.success
+  }
+}));
+
 class FakeEventSource {
   static instances: FakeEventSource[] = [];
   onmessage: ((event: MessageEvent<string>) => void) | null = null;
@@ -26,6 +40,9 @@ describe("usePipelineEvents", () => {
     FakeEventSource.instances = [];
     Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
     vi.restoreAllMocks();
+    toastMocks.error.mockReset();
+    toastMocks.info.mockReset();
+    toastMocks.success.mockReset();
   });
 
   it("opens filtered event stream and forwards parsed events", () => {
@@ -47,6 +64,7 @@ describe("usePipelineEvents", () => {
     });
 
     expect(onEvent).toHaveBeenCalledWith(expect.objectContaining({ stage: "draft" }));
+    expect(toastMocks.success).toHaveBeenCalledWith("完成");
     unmount();
     expect(FakeEventSource.instances[0].closed).toBe(true);
   });
@@ -62,4 +80,102 @@ describe("usePipelineEvents", () => {
     expect(FakeEventSource.instances[0].url).toBe("http://127.0.0.1:8000/api/events?book_id=lurenjia&chapter_no=3");
     unmount();
   });
+
+  it("forwards llm progress events without showing toast", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const onEvent = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+
+    renderHook(() => usePipelineEvents("lurenjia", 4, onEvent), { wrapper });
+
+    act(() => {
+      FakeEventSource.instances[0].onmessage?.(
+        createMockSSEEvent("llm:progress", {
+          stage: "draft",
+          detail: { completed: 2, total: 5 }
+        })
+      );
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "llm:progress",
+        detail: { completed: 2, total: 5 }
+      })
+    );
+    expect(toastMocks.info).not.toHaveBeenCalled();
+    expect(toastMocks.success).not.toHaveBeenCalled();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it("forwards llm chunk events without showing toast", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const onEvent = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+
+    renderHook(() => usePipelineEvents("lurenjia", 5, onEvent), { wrapper });
+
+    act(() => {
+      FakeEventSource.instances[0].onmessage?.(
+        createMockSSEEvent("llm:chunk", {
+          stage: "draft",
+          detail: { text: "林默" }
+        })
+      );
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "llm:chunk",
+        detail: { text: "林默" }
+      })
+    );
+    expect(toastMocks.info).not.toHaveBeenCalled();
+    expect(toastMocks.success).not.toHaveBeenCalled();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
+
+  it("does not show toast for pipeline progress style events", () => {
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const onEvent = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+
+    renderHook(() => usePipelineEvents("lurenjia", 6, onEvent), { wrapper });
+
+    act(() => {
+      FakeEventSource.instances[0].onmessage?.(
+        createMockSSEEvent("pipeline:progress", {
+          stage: "draft",
+          message: "处理中"
+        })
+      );
+    });
+
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "pipeline:progress",
+        message: "处理中"
+      })
+    );
+    expect(toastMocks.info).not.toHaveBeenCalled();
+    expect(toastMocks.success).not.toHaveBeenCalled();
+    expect(toastMocks.error).not.toHaveBeenCalled();
+  });
 });
+
+function createMockSSEEvent(
+  type: string,
+  overrides?: Record<string, unknown>
+): MessageEvent<string> {
+  return new MessageEvent("message", {
+    data: JSON.stringify({
+      type,
+      book_id: "test-book",
+      chapter_no: 1,
+      ...overrides
+    })
+  });
+}

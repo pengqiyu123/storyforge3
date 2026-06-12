@@ -7,6 +7,7 @@ import { ChapterEditor, type HighlightRange } from "@/components/editor/ChapterE
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AuditResultPanel } from "@/components/chapters/AuditResultPanel";
+import { PipelineProgress } from "@/components/chapters/PipelineProgress";
 import { RevisionDiffPanel } from "@/components/chapters/RevisionDiffPanel";
 import { ExportPreviewDialog } from "@/components/export/ExportPreviewDialog";
 import {
@@ -53,6 +54,8 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
   const [lastEvent, setLastEvent] = useState("");
   const [lastAudit, setLastAudit] = useState<AuditResult | null>(null);
   const [lastError, setLastError] = useState("");
+  const [pipelineStage, setPipelineStage] = useState<string | null>(null);
+  const [chunkProgress, setChunkProgress] = useState<{ completed: number; total: number } | null>(null);
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState("");
   const [lastRevisionDiff, setLastRevisionDiff] = useState<RevisionDiff | null>(null);
@@ -68,6 +71,23 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
 
   usePipelineEvents(bookId, chapterNo, (event) => {
     setLastEvent(event.message || event.stage || "");
+    if (event.type === "pipeline:start") {
+      setPipelineStage(event.stage || null);
+      setChunkProgress(null);
+      setLastError("");
+    } else if (event.type === "llm:progress" && event.detail) {
+      setChunkProgress({
+        completed: Number(event.detail.completed) || 0,
+        total: Number(event.detail.total) || 0
+      });
+    } else if (event.type === "pipeline:error") {
+      setPipelineStage(event.stage || null);
+      setChunkProgress(null);
+      setLastError(event.message || "管线运行失败");
+    } else if (event.type === "pipeline:complete") {
+      setPipelineStage(null);
+      setChunkProgress(null);
+    }
   });
 
   async function runAction(label: string, action: () => Promise<unknown>) {
@@ -257,9 +277,12 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
               预览
             </Button>
           ) : null}
-          {lastEvent ? <span className="text-sm text-zinc-500">{lastEvent}</span> : null}
+          {!isBusy && lastEvent ? <span className="text-sm text-zinc-500">{lastEvent}</span> : null}
         </div>
-        {lastError ? <p className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300">{lastError}</p> : null}
+        {isBusy && pipelineStage ? (
+          <PipelineProgress stage={pipelineStage} progress={chunkProgress} active={isBusy} error={lastError || null} />
+        ) : null}
+        {!isBusy && lastError ? <p className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300">{lastError}</p> : null}
         <AuditResultPanel result={lastAudit} onLocateIssue={handleLocateIssue} />
         {lastRevisionDiff ? <RevisionDiffPanel diff={lastRevisionDiff} onClose={() => setLastRevisionDiff(null)} /> : null}
         <div className="space-y-2">

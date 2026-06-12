@@ -111,7 +111,7 @@ Supported export formats:
 Current status, history, and forward plan are split across `docs/current.md`, `docs/history.md`, and `docs/next.md`. Architecture decisions are recorded under `docs/adr/`.
 
 - Backend unit/API baseline: 498 passed with 91% coverage in the Phase 10A-1/10A-2 coverage run; `ruff check .` clean.
-- Frontend baseline: 62 passed, `pnpm build` clean except the existing large CodeMirror chunk warning.
+- Frontend baseline: 71 passed, `pnpm build` clean except the existing large CodeMirror chunk warning.
 - Rust desktop baseline: 5 passed (4 prior + 1 sidecar candidates from 8A-1). `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo build` clean. Current environment has no `cargo`, so Rust was not rerun in 8A-1 verification.
 - FastAPI Phase 1 is complete: health, books, world, characters, volumes, chapters, truth, export, providers, daemon, and SSE routes are present in OpenAPI; `storyforge3 serve` startup was smoke-tested.
 - Active provider validation passed for `Codex 直连中转` / `gpt-5.5`.
@@ -138,7 +138,7 @@ Current status, history, and forward plan are split across `docs/current.md`, `d
 - Phase 8B-1 complete: Service test gap closure (PromptService 7 tests, StyleService 7 tests, TruthService 6 tests). Service layer 17/17 test coverage.
 - Phase 8 progress: 2/2 sub-phases (8A-1 ✅, 8B-1 ✅).
 - Phase 8.5 complete: Dogfood RC user-facing docs (`README.md`, `docs/quickstart.md`, `docs/dogfood-protocol.md`), release setup sidecar/venv wording updated, cold-start smoke passed (temp venv install/import/CLI help, `storyforge3 serve`, `/api/health`, create-book API, Vite proxy). Active provider is `weShareAi / gpt-5.5` and `storyforge3 health` passes. Real write-a-chapter dogfood is documented but not executed yet. Directive: `docs/directives/directive-8-5.md`.
-- Phase 10A in progress (Validation phase): 10A-1 complete (`docs/current.md`, `docs/history.md`, `docs/next.md`, 5 ADRs, 91% coverage baseline); 10A-2 complete (`generate_text_stream()` for openai_chat/openai_responses, `ChunkedGenerator` on_progress callback, SSE `llm:progress`, truth-before-export guard); 10A-3 pending frontend progress UI (`PipelineProgress` component, `ChapterPipeline` SSE integration). Directives: `docs/directives/directive-10a-1.md`, `directive-10a-2.md`, `directive-10a-3.md`.
+- Phase 10A in progress (Validation phase): 10A-1 complete (`docs/current.md`, `docs/history.md`, `docs/next.md`, 5 ADRs, 91% coverage baseline); 10A-2 complete (`generate_text_stream()` for openai_chat/openai_responses, `ChunkedGenerator` on_progress callback, SSE `llm:progress`, truth-before-export guard); 10A-3 complete (frontend `PipelineProgress` component, `ChapterPipeline` SSE integration, progress-event toast suppression, frontend tests 62 -> 71). Directives: `docs/directives/directive-10a-1.md`, `directive-10a-2.md`, `directive-10a-3.md`.
 
 ## Known Issues
 

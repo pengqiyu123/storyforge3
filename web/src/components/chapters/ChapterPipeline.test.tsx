@@ -1,18 +1,25 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChangeEvent } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChapterPipeline, paragraphIndicesToRanges } from "./ChapterPipeline";
 
 const auditMutateAsync = vi.fn();
 const reviseMutateAsync = vi.fn();
+const pendingState = vi.hoisted(() => ({
+  audit: false,
+  revise: false,
+  runFull: false
+}));
 const toastMocks = vi.hoisted(() => ({
+  info: vi.fn(),
   error: vi.fn(),
   success: vi.fn()
 }));
 
 vi.mock("sonner", () => ({
   toast: {
+    info: toastMocks.info,
     success: toastMocks.success,
     error: toastMocks.error
   }
@@ -54,12 +61,32 @@ vi.mock("@/components/export/ExportPreviewDialog", () => ({
   ExportPreviewDialog: ({ open }: { open: boolean }) => (open ? <div>导出预览</div> : null)
 }));
 
+const pipelineEventState = vi.hoisted(() => ({
+  current: undefined as
+    | ((event: {
+        type: string;
+        book_id: string;
+        chapter_no: number;
+        stage?: string;
+        message?: string;
+        detail?: Record<string, unknown> | null;
+      }) => void)
+    | undefined
+}));
+
+vi.mock("@/hooks/usePipelineEvents", () => ({
+  usePipelineEvents: (_bookId?: string, _chapterNo?: number, onEvent?: typeof pipelineEventState.current) => {
+    pipelineEventState.current = onEvent;
+  }
+}));
+
 vi.mock("@/hooks/useChapters", async () => {
   const actual = await vi.importActual<typeof import("@/hooks/useChapters")>("@/hooks/useChapters");
   return {
     ...actual,
-    useChapterAudit: () => ({ mutateAsync: auditMutateAsync, isPending: false }),
-    useChapterRevise: () => ({ mutateAsync: reviseMutateAsync, isPending: false })
+    useChapterAudit: () => ({ mutateAsync: auditMutateAsync, isPending: pendingState.audit }),
+    useChapterRevise: () => ({ mutateAsync: reviseMutateAsync, isPending: pendingState.revise }),
+    useRunFullPipeline: () => ({ mutateAsync: vi.fn(), isPending: pendingState.runFull })
   };
 });
 
@@ -67,8 +94,13 @@ describe("ChapterPipeline", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    pendingState.audit = false;
+    pendingState.revise = false;
+    pendingState.runFull = false;
+    pipelineEventState.current = undefined;
     auditMutateAsync.mockReset();
     reviseMutateAsync.mockReset();
+    toastMocks.info.mockReset();
     toastMocks.error.mockReset();
     toastMocks.success.mockReset();
   });
@@ -330,4 +362,74 @@ describe("ChapterPipeline", () => {
 
     await waitFor(() => expect(screen.getByText("导出预览")).toBeInTheDocument());
   });
+
+  it("shows pipeline progress when busy after pipeline start event", () => {
+    pendingState.audit = true;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onPlan = vi.fn(() => new Promise(() => undefined));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChapterPipeline
+          bookId="lurenjia"
+          chapterNo={1}
+          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。" }}
+          onPlan={onPlan}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "起草", message: "开始起草" });
+    });
+
+    expect(screen.getByTestId("pipeline-progress")).toBeInTheDocument();
+    expect(screen.getByText("正在起草...")).toBeInTheDocument();
+  });
+
+  it("updates chunk progress from sse events", () => {
+    pendingState.audit = true;
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const onPlan = vi.fn(() => new Promise(() => undefined));
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <ChapterPipeline
+          bookId="lurenjia"
+          chapterNo={1}
+          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。" }}
+          onPlan={onPlan}
+        />
+      </QueryClientProvider>
+    );
+
+    act(() => {
+      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "起草", message: "开始起草" });
+      actPipelineEvent({
+        type: "llm:progress",
+        book_id: "lurenjia",
+        chapter_no: 1,
+        stage: "draft",
+        detail: { completed: 3, total: 5 }
+      });
+    });
+
+    expect(screen.getByText("3/5 段")).toBeInTheDocument();
+    expect(screen.getByText("正在生成第 3/5 段")).toBeInTheDocument();
+    expect(screen.getByTestId("pipeline-progress-bar")).toHaveStyle({ width: "60%" });
+  });
 });
+
+function actPipelineEvent(event: {
+  type: string;
+  book_id: string;
+  chapter_no: number;
+  stage?: string;
+  message?: string;
+  detail?: Record<string, unknown> | null;
+}) {
+  if (!pipelineEventState.current) {
+    throw new Error("pipeline event callback not registered");
+  }
+  pipelineEventState.current(event);
+}
