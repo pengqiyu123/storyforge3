@@ -5,6 +5,7 @@ import hashlib
 import json
 
 from storyforge3.api.sse import PipelineEvent, SSEManager, make_chunk_event, make_progress_event, sse_manager
+from storyforge3.api.routes.events import sse_subscribe
 from storyforge3.models import ChapterResult, ChapterStatus
 
 
@@ -238,6 +239,36 @@ def test_llm_sse_event_helpers_shape():
     assert progress.detail == {"completed": 1, "total": 3}
 
 
+def test_make_progress_event_serializes_exact_shape():
+    progress = make_progress_event("book-stream", 7, 2, 5)
+
+    assert progress.model_dump() == {
+        "type": "llm:progress",
+        "book_id": "book-stream",
+        "chapter_no": 7,
+        "stage": "draft",
+        "message": "正在生成第 2/5 段",
+        "detail": {"completed": 2, "total": 5},
+    }
+
+
+def test_events_endpoint_replays_llm_progress_on_draft(client):
+    book_id = "chapter-api-events"
+    chapter_no = 6
+
+    draft = client.post(f"/api/books/{book_id}/chapters/{chapter_no}/draft")
+    assert draft.status_code == 200
+
+    progress = asyncio.run(_read_progress_sse_event(book_id, chapter_no))
+
+    assert progress["type"] == "llm:progress"
+    assert progress["book_id"] == book_id
+    assert progress["chapter_no"] == chapter_no
+    assert progress["stage"] == "draft"
+    assert progress["detail"] == {"completed": 1, "total": 2}
+    assert progress["message"] == "正在生成第 1/2 段"
+
+
 def test_sse_manager_filters_by_book_and_chapter():
     async def scenario() -> None:
         manager = SSEManager()
@@ -261,6 +292,17 @@ async def _collect_replayed_events(manager: SSEManager, book_id: str, chapter_no
         return [json.loads(item) for item in items]
     finally:
         await subscription.aclose()
+
+
+async def _read_progress_sse_event(book_id: str, chapter_no: int) -> dict:
+    response = await sse_subscribe(book_id=book_id, chapter_no=chapter_no)
+    while True:
+        event = await asyncio.wait_for(anext(response.body_iterator), timeout=0.5)
+        if event.get("event") != "pipeline":
+            raise AssertionError(f"unexpected SSE event envelope: {event!r}")
+        payload = json.loads(event["data"])
+        if payload.get("type") == "llm:progress":
+            return payload
 
 
 def _fingerprint(text: str) -> str:

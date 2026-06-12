@@ -136,8 +136,17 @@ class ApiFakeChapterService:
     async def plan(self, _book_id: str, chapter_no: int) -> ChapterIntent:
         return ChapterIntent(chapter_no=chapter_no, goal="推进主线")
 
-    async def draft(self, _book_id: str, _chapter_no: int, intent: ChapterIntent | None = None) -> str:
+    async def draft(
+        self,
+        _book_id: str,
+        _chapter_no: int,
+        intent: ChapterIntent | None = None,
+        *,
+        on_chunk_progress=None,
+    ) -> str:
         del intent
+        if on_chunk_progress is not None:
+            await on_chunk_progress(1, 2)
         return "林默停在副楼门口。"
 
     async def run_llm_audit(self, _book_id: str, _chapter_no: int, _text: str) -> LLMAuditResult:

@@ -232,6 +232,50 @@ def test_generate_text_stream_falls_back_on_429_before_yielding() -> None:
     assert run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1}))) == ["降级正文"]
 
 
+def test_generate_text_stream_rotates_to_fallback_provider_before_yielding() -> None:
+    seen_urls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_urls.append(str(request.url))
+        if "backup.test" in str(request.url):
+            return httpx.Response(200, json=response_text("备用正文", model="backup-model"))
+        return httpx.Response(404, json={"error": "missing"})
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        fallback_provider=provider(
+            key="cc-backup",
+            label="Backup",
+            base_url="https://backup.test/v1",
+            api_key="backup-key",
+            model_id="backup-model",
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://backup.test/v1"],
+            cc_base_url_raw="https://backup.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(collect_stream(service.generate_text_stream("draft", "system", {"x": 1}))) == ["备用正文"]
+    assert seen_urls == [
+        "https://primary.test/v1/responses",
+        "https://primary.test/v1/responses",
+        "https://backup.test/v1/responses",
+    ]
+    assert service.last_call is not None
+    assert service.last_call.success is True
+    assert service.fallback_provider is not None
+    assert service.fallback_provider["cc_last_verified_endpoint"] == "https://backup.test/v1/responses"
+    assert service.fallback_provider["cc_last_verified_model"] == "backup-model"
+
+
 def test_generate_text_stream_timeout_raises_llm_timeout() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ReadTimeout("slow stream", request=request)
