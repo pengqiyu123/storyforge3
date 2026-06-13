@@ -28,5 +28,6 @@ def _service(config: StoryForge3Config, provider: dict, *, fallback_provider: di
         fallback_provider=fallback_provider,
         default_timeout=config.llm_timeout_seconds,
         draft_timeout=config.llm_draft_timeout_seconds,
+        truth_timeout=config.llm_truth_timeout_seconds,
         short_timeout=config.llm_short_timeout_seconds,
     )

@@ -181,6 +181,7 @@ def test_504_retry_sleep_adds_jitter(config, monkeypatch) -> None:
 
 def test_task_timeout_draft_uses_longer_timeout(config) -> None:
     assert config.llm_draft_timeout_seconds == 300
+    assert config.llm_truth_timeout_seconds == 600
     assert config.llm_short_timeout_seconds == 60
     client = make_client(config, [])
     assert client._timeout_for_task("draft") == 300
@@ -188,7 +189,8 @@ def test_task_timeout_draft_uses_longer_timeout(config) -> None:
     assert client._timeout_for_task("chapter_draft_chunk") == 300
     assert client._timeout_for_task("length_normalize") == 300
     assert client._timeout_for_task("revise") == 300
-    assert client._timeout_for_task("plan") == 60
-    assert client._timeout_for_task("chapter_plan") == 60
+    assert client._timeout_for_task("plan") == 120
+    assert client._timeout_for_task("chapter_plan") == 120
+    assert client._timeout_for_task("truth_extract") == 600
     assert client._timeout_for_task("health") == 60
     assert client._timeout_for_task("world_build") == 120

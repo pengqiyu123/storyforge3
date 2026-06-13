@@ -313,16 +313,19 @@ def test_task_timeout_defaults_and_explicit_override() -> None:
         sleep=lambda _: None,
         default_timeout=120,
         draft_timeout=300,
+        truth_timeout=600,
         short_timeout=60,
     )
 
     assert run(service.generate_text("chapter_plan", "system", {})) == "正文"
     assert run(service.generate_text("chapter_draft_chunk", "system", {})) == "正文"
+    assert run(service.generate_text("truth_extract", "system", {})) == "正文"
     assert run(service.generate_text("world_build", "system", {}, timeout=77)) == "正文"
 
-    assert seen_extensions[0]["timeout"]["connect"] == 60
+    assert seen_extensions[0]["timeout"]["connect"] == 120
     assert seen_extensions[1]["timeout"]["connect"] == 300
-    assert seen_extensions[2]["timeout"]["connect"] == 77
+    assert seen_extensions[2]["timeout"]["connect"] == 600
+    assert seen_extensions[3]["timeout"]["connect"] == 77
 
 
 def test_openai_chat_payload_shape() -> None:

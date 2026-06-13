@@ -85,6 +85,7 @@ class LLMService:
         sleep: Callable[[float], Any] | None = None,
         default_timeout: int = 120,
         draft_timeout: int = 300,
+        truth_timeout: int = 600,
         short_timeout: int = 60,
     ) -> None:
         self.provider = dict(provider)
@@ -94,6 +95,7 @@ class LLMService:
         self._sleep = sleep or asyncio.sleep
         self.default_timeout = default_timeout
         self.draft_timeout = draft_timeout
+        self.truth_timeout = truth_timeout
         self.short_timeout = short_timeout
 
     async def check_health(self) -> bool:
@@ -606,7 +608,9 @@ class LLMService:
         normalized = task_name.lower()
         if "draft" in normalized or "revise" in normalized or "normalize" in normalized:
             return self.draft_timeout
-        if normalized in {"health", "chapter_plan", "plan"} or normalized.endswith("_chunk_plan"):
+        if normalized == "truth_extract":
+            return self.truth_timeout
+        if normalized == "health":
             return self.short_timeout
         return self.default_timeout
 

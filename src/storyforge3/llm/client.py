@@ -204,8 +204,9 @@ class CCSwitchClient:
         normalized = task_name.lower()
         if "draft" in normalized or "revise" in normalized or "normalize" in normalized:
             return self.config.llm_draft_timeout_seconds
-        short_tasks = {"health", "chapter_plan", "plan"}
-        if normalized in short_tasks:
+        if normalized == "truth_extract":
+            return self.config.llm_truth_timeout_seconds
+        if normalized == "health":
             return self.config.llm_short_timeout_seconds
         return self.config.llm_timeout_seconds
 

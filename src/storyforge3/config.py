@@ -10,6 +10,7 @@ class StoryForge3Config(BaseSettings):
     providers_config_dir: str = ".storyforge3"
     llm_timeout_seconds: int = 120
     llm_draft_timeout_seconds: int = 300
+    llm_truth_timeout_seconds: int = 600
     llm_short_timeout_seconds: int = 60
     health_check_on_startup: bool = True
 
