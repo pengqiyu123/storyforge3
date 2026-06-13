@@ -37,6 +37,14 @@ def test_chapter_plan_and_draft_emit_sse_events(client, mock_chapter_service):
     assert events[1]["detail"] == {"completed": 1, "total": 2}
 
 
+def test_get_chapter_plan_returns_intent(client):
+    resp = client.get("/api/books/chapter-api-draft/chapters/1/plan")
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["goal"] == "推进主线"
+    assert data["outline_node"] == "检测中心副楼出现异常回响"
+
+
 def test_chapter_audit_before_draft_returns_404(client, mock_chapter_service):
     mock_chapter_service.raise_audit_not_found = True
     resp = client.post("/api/books/chapter-api/chapters/1/audit")

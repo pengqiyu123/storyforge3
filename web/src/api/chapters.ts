@@ -116,6 +116,7 @@ export interface ExportPreview {
 
 export const chaptersApi = {
   getStatus: (bookId: string, chapterNo: number) => api.get<ChapterResult>(`/api/books/${bookId}/chapters/${chapterNo}/status`),
+  getPlan: (bookId: string, chapterNo: number) => api.get<ChapterIntent>(`/api/books/${bookId}/chapters/${chapterNo}/plan`),
   plan: (bookId: string, chapterNo: number) => api.post<ChapterIntent>(`/api/books/${bookId}/chapters/${chapterNo}/plan`, {}),
   draft: (bookId: string, chapterNo: number) => api.post<ChapterTextResponse>(`/api/books/${bookId}/chapters/${chapterNo}/draft`, {}),
   audit: (bookId: string, chapterNo: number) => api.post<AuditResult>(`/api/books/${bookId}/chapters/${chapterNo}/audit`, {}),

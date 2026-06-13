@@ -35,6 +35,9 @@ class StoragePaths:
     def chapter_file(self, book_id: str, chapter_no: int) -> Path:
         return self.book_dir(book_id) / "chapters" / f"{chapter_no:04d}.md"
 
+    def plan_file(self, book_id: str, chapter_no: int) -> Path:
+        return self.book_dir(book_id) / "plans" / f"{chapter_no:04d}.json"
+
     def truth_file(self, book_id: str, chapter_no: int) -> Path:
         return self.book_dir(book_id) / "truth" / f"truth_{chapter_no:04d}.json"
 

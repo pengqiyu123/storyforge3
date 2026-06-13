@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Check, Eye, Pencil, Play, Save, X } from "lucide-react";
 import { exportChapterDesktop, resolveApiUrl } from "@/api/client";
-import { chaptersApi, type AuditResult, type ChapterResult, type RevisionDiff, type RuleResult } from "@/api/chapters";
+import { chaptersApi, type AuditResult, type ChapterIntent, type ChapterResult, type RevisionDiff, type RuleResult } from "@/api/chapters";
 import { ChapterEditor, type HighlightRange } from "@/components/editor/ChapterEditor";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,6 +16,7 @@ import {
   useChapterDraft,
   useChapterExport,
   useChapterPlan,
+  useChapterPlanState,
   useChapterRevise,
   useChapterUpdateText,
   useRunFullPipeline
@@ -44,6 +45,7 @@ const steps = [
 
 export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPipelineProps) {
   const plan = useChapterPlan(bookId);
+  const persistedPlan = useChapterPlanState(bookId, chapterNo);
   const draft = useChapterDraft(bookId);
   const audit = useChapterAudit(bookId);
   const revise = useChapterRevise(bookId);
@@ -52,6 +54,7 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
   const runFull = useRunFullPipeline(bookId);
   const updateText = useChapterUpdateText(bookId);
   const [lastEvent, setLastEvent] = useState("");
+  const [lastPlan, setLastPlan] = useState<ChapterIntent | null>(null);
   const [lastAudit, setLastAudit] = useState<AuditResult | null>(null);
   const [lastError, setLastError] = useState("");
   const [pipelineStage, setPipelineStage] = useState<string | null>(null);
@@ -68,6 +71,20 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
   const isSaving = updateText.isPending;
   const isBusy = [plan, draft, audit, revise, approve, exportChapter, runFull, updateText].some((mutation) => mutation.isPending);
   const status = String(result?.status ?? "empty").toLowerCase();
+
+  useEffect(() => {
+    if (persistedPlan.data) {
+      setLastPlan({
+        chapter_no: persistedPlan.data.chapter_no,
+        goal: persistedPlan.data.goal,
+        outline_node: persistedPlan.data.outline_node,
+        arc_context: persistedPlan.data.arc_context ?? "",
+        must_keep: persistedPlan.data.must_keep ?? [],
+        must_avoid: persistedPlan.data.must_avoid ?? [],
+        style_emphasis: persistedPlan.data.style_emphasis ?? []
+      });
+    }
+  }, [persistedPlan.data]);
 
   usePipelineEvents(bookId, chapterNo, (event) => {
     setLastEvent(event.message || event.stage || "");
@@ -97,6 +114,9 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
         setLastRevisionDiff(null);
       }
       const value = await action();
+      if (isChapterIntent(value)) {
+        setLastPlan(value);
+      }
       if (isAuditResult(value)) {
         setLastAudit(value);
       }
@@ -283,6 +303,50 @@ export function ChapterPipeline({ bookId, chapterNo, result, onPlan }: ChapterPi
           <PipelineProgress stage={pipelineStage} progress={chunkProgress} active={isBusy} error={lastError || null} />
         ) : null}
         {!isBusy && lastError ? <p className="rounded-md border border-red-400/20 bg-red-400/10 p-3 text-sm text-red-300">{lastError}</p> : null}
+        {lastPlan ? (
+          <div className="rounded-md border border-zinc-800/80 bg-zinc-950/80 p-4 text-sm text-zinc-300" data-testid="chapter-plan-panel">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-zinc-100">本章规划</span>
+              <span className="text-xs text-zinc-500">{`第 ${lastPlan.chapter_no} 章`}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              <p>
+                <span className="text-zinc-500">目标：</span>
+                {lastPlan.goal}
+              </p>
+              {lastPlan.outline_node ? (
+                <p>
+                  <span className="text-zinc-500">卷纲节点：</span>
+                  {lastPlan.outline_node}
+                </p>
+              ) : null}
+              {lastPlan.arc_context ? (
+                <p>
+                  <span className="text-zinc-500">弧线：</span>
+                  {lastPlan.arc_context}
+                </p>
+              ) : null}
+              {lastPlan.must_keep.length ? (
+                <p>
+                  <span className="text-zinc-500">必须保留：</span>
+                  {lastPlan.must_keep.join("、")}
+                </p>
+              ) : null}
+              {lastPlan.must_avoid.length ? (
+                <p>
+                  <span className="text-zinc-500">必须避免：</span>
+                  {lastPlan.must_avoid.join("、")}
+                </p>
+              ) : null}
+              {lastPlan.style_emphasis.length ? (
+                <p>
+                  <span className="text-zinc-500">风格侧重：</span>
+                  {lastPlan.style_emphasis.join("、")}
+                </p>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         <AuditResultPanel result={lastAudit} onLocateIssue={handleLocateIssue} />
         {lastRevisionDiff ? <RevisionDiffPanel diff={lastRevisionDiff} onClose={() => setLastRevisionDiff(null)} /> : null}
         <div className="space-y-2">
@@ -331,6 +395,10 @@ function isAuditResult(value: unknown): value is AuditResult {
 
 function isChapterResult(value: unknown): value is ChapterResult {
   return Boolean(value && typeof value === "object" && "book_id" in value && "chapter_no" in value && "status" in value);
+}
+
+function isChapterIntent(value: unknown): value is ChapterIntent {
+  return Boolean(value && typeof value === "object" && "goal" in value && "outline_node" in value && "must_keep" in value);
 }
 
 export function paragraphIndicesToRanges(text: string, indices: number[]): { from: number; to: number }[] {

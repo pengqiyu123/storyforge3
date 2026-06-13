@@ -23,6 +23,7 @@ from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.export_service import ExportService
 from storyforge3.services.length_normalizer import LengthNormalizationResult, LengthNormalizer
 from storyforge3.storage import BookStorage, StoragePaths
+from storyforge3.state.machine import ChapterStateMachine, InvalidTransitionError
 from storyforge3.style.imitation import StyleImitator, fingerprint_from_dict
 from storyforge3.truth.extractor import TruthExtractor
 from storyforge3.truth.retriever import TruthRetriever
@@ -76,7 +77,14 @@ class ChapterService:
         payload = {"book_id": book_id, "chapter_no": chapter_no, "context": self.storage.read_text(self.paths.context(book_id)) or ""}
         outline = await self.llm.generate_text("chapter_plan", prompt, payload, model=self.config.model_for_task("planner"))
         goal = self._extract_goal(outline)
-        return ChapterIntent(chapter_no, goal, outline_node=outline)
+        intent = ChapterIntent(chapter_no, goal, outline_node=outline)
+        self._save_plan(book_id, intent)
+        self._advance_planned_state(book_id, chapter_no)
+        self._bump_current_chapter(book_id, chapter_no)
+        return intent
+
+    async def get_plan(self, book_id: str, chapter_no: int) -> ChapterIntent | None:
+        return self._load_plan(book_id, chapter_no)
 
     async def draft(
         self,
@@ -86,7 +94,7 @@ class ChapterService:
         *,
         on_chunk_progress: Callable[[int, int], Awaitable[None]] | None = None,
     ) -> str:
-        intent = intent or await self.plan(book_id, chapter_no)
+        intent = intent or self._load_plan(book_id, chapter_no) or await self.plan(book_id, chapter_no)
         prompt = CHAPTER_DRAFT_PROMPT
         style_prompt = self._style_prompt_fragment(book_id)
         if style_prompt:
@@ -120,6 +128,7 @@ class ChapterService:
             text = await self.llm.generate_text("chapter_draft", prompt, payload, model=model)
         text = await self._normalize_draft_if_needed(book_id, text)
         self.storage.write_text(self.paths.chapter_file(book_id, chapter_no), text)
+        self._bump_current_chapter(book_id, chapter_no)
         return text
 
     async def audit(self, book_id: str, chapter_no: int) -> AuditResult:
@@ -219,9 +228,11 @@ class ChapterService:
 
     async def get_status(self, book_id: str, chapter_no: int) -> ChapterResult | None:
         text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
-        if text is None:
-            return None
-        return ChapterResult(book_id, chapter_no, self._workflow_status(book_id, chapter_no), f"第{chapter_no}章", text)
+        if text is not None:
+            return ChapterResult(book_id, chapter_no, self._workflow_status(book_id, chapter_no), f"第{chapter_no}章", text)
+        if self._load_plan(book_id, chapter_no) is not None:
+            return ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
+        return None
 
     async def update_text(
         self,
@@ -262,13 +273,9 @@ class ChapterService:
         return goal[:50] or "推进主线"
 
     def _workflow_status(self, book_id: str, chapter_no: int):
-        from storyforge3.state.machine import ChapterStateMachine
-
         return ChapterStateMachine(self.paths.chapter_states(book_id)).current_status(book_id, chapter_no)
 
     def _advance_revision_state(self, book_id: str, chapter_no: int) -> None:
-        from storyforge3.state.machine import ChapterStateMachine
-
         machine = ChapterStateMachine(self.paths.chapter_states(book_id))
         while True:
             current = machine.current_status(book_id, chapter_no)
@@ -293,6 +300,54 @@ class ChapterService:
 
     def _write_before_snapshot(self, book_id: str, chapter_no: int, text: str) -> None:
         self.storage.write_text(self.paths.chapter_file(book_id, chapter_no).with_suffix(".before.md"), text)
+
+    def _save_plan(self, book_id: str, intent: ChapterIntent) -> None:
+        self.storage.write_json(
+            self.paths.plan_file(book_id, intent.chapter_no),
+            {
+                "chapter_no": intent.chapter_no,
+                "goal": intent.goal,
+                "outline_node": intent.outline_node,
+                "arc_context": intent.arc_context,
+                "must_keep": list(intent.must_keep),
+                "must_avoid": list(intent.must_avoid),
+                "style_emphasis": list(intent.style_emphasis),
+            },
+        )
+
+    def _load_plan(self, book_id: str, chapter_no: int) -> ChapterIntent | None:
+        data = self.storage.read_json(self.paths.plan_file(book_id, chapter_no))
+        if not data:
+            return None
+        return ChapterIntent(
+            chapter_no=int(data.get("chapter_no", chapter_no)),
+            goal=str(data.get("goal", "")),
+            outline_node=str(data.get("outline_node", "")),
+            arc_context=str(data.get("arc_context", "")),
+            must_keep=tuple(str(item) for item in data.get("must_keep", ())),
+            must_avoid=tuple(str(item) for item in data.get("must_avoid", ())),
+            style_emphasis=tuple(str(item) for item in data.get("style_emphasis", ())),
+        )
+
+    def _advance_planned_state(self, book_id: str, chapter_no: int) -> None:
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current != ChapterStatus.EMPTY:
+            return
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.PLANNED)
+        except InvalidTransitionError:
+            return
+
+    def _bump_current_chapter(self, book_id: str, chapter_no: int) -> None:
+        data = self.storage.read_json(self.paths.book_meta(book_id))
+        if not data:
+            return
+        current = int(data.get("current_chapter", 0) or 0)
+        if chapter_no <= current:
+            return
+        data["current_chapter"] = chapter_no
+        self.storage.write_json(self.paths.book_meta(book_id), data)
 
     def _render_revision_prompt(self, mode: RevisionMode, extra_constraints: tuple[str, ...], failed: list) -> str:
         template = self.prompt_registry.get_latest("revise")

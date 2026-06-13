@@ -115,6 +115,10 @@ def test_chapter_service_plan_draft_audit_and_run(config: StoryForge3Config, boo
     service = ChapterService(config, llm=MockClient())
     intent = run(service.plan("lurenjia", 8))
     assert intent == ChapterIntent(8, "林默进入检测中心。", outline_node="本章目标：林默进入检测中心。")
+    plan_path = service.paths.plan_file("lurenjia", 8)
+    assert plan_path.exists()
+    assert json.loads(plan_path.read_text(encoding="utf-8"))["goal"] == "林默进入检测中心。"
+    assert ChapterStateMachine(service.paths.chapter_states("lurenjia")).current_status("lurenjia", 8) == ChapterStatus.PLANNED
     text = run(service.draft("lurenjia", 8, intent))
     assert "林默" in text
     audit = run(service.audit("lurenjia", 8))
@@ -246,6 +250,60 @@ def test_chapter_service_plan_uses_registry_plan_template(config: StoryForge3Con
     assert call["task_name"] == "chapter_plan"
     assert "规划第8章" in call["system_prompt"]
     assert "不要输出章节正文" in call["system_prompt"]
+
+
+def test_chapter_service_plan_is_idempotent(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+
+    first = run(service.plan("lurenjia", 8))
+    second = run(service.plan("lurenjia", 8))
+
+    assert first.goal == second.goal
+    assert ChapterStateMachine(service.paths.chapter_states("lurenjia")).current_status("lurenjia", 8) == ChapterStatus.PLANNED
+
+
+def test_chapter_service_get_status_returns_planned_without_text(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    run(service.plan("lurenjia", 8))
+
+    result = run(service.get_status("lurenjia", 8))
+
+    assert result is not None
+    assert result.status == ChapterStatus.PLANNED
+    assert result.text == ""
+
+
+def test_chapter_service_draft_reuses_persisted_plan(config: StoryForge3Config, book_workspace: Path) -> None:
+    llm = DraftLengthMockClient(draft_text=chinese_text(700), normalized_text=chinese_text(700))
+    service = ChapterService(config, llm=llm)
+    service.storage.write_json(
+        service.paths.plan_file("lurenjia", 8),
+        {
+            "chapter_no": 8,
+            "goal": "进入检测中心",
+            "outline_node": "夜灯仓纠纷升级",
+            "arc_context": "",
+            "must_keep": ["保留巡夜队压力"],
+            "must_avoid": ["直接解释世界观"],
+            "style_emphasis": ["短句推进"],
+        },
+    )
+    ChapterStateMachine(service.paths.chapter_states("lurenjia")).advance("lurenjia", 8, ChapterStatus.PLANNED)
+
+    run(service.draft("lurenjia", 8))
+
+    assert [call["task_name"] for call in llm.calls] == ["chapter_draft"]
+    assert llm.calls[0]["payload"]["intent"] == "进入检测中心"
+
+
+def test_chapter_service_plan_updates_current_chapter(config: StoryForge3Config, book_workspace: Path) -> None:
+    write_book_meta(book_workspace, target_chars=1000)
+    service = ChapterService(config, llm=MockClient())
+
+    run(service.plan("lurenjia", 8))
+
+    meta = json.loads((book_workspace / "book.json").read_text(encoding="utf-8"))
+    assert meta["current_chapter"] == 8
 
 
 def test_chapter_draft_prompt_contains_writing_constraints() -> None:

@@ -138,6 +138,17 @@ class FakeChapterService:
             style_emphasis=("短句推进",),
         )
 
+    async def get_plan(self, _book_id: str, chapter_no: int) -> ChapterIntent | None:
+        return ChapterIntent(
+            chapter_no=chapter_no,
+            goal="推进主线",
+            outline_node="检测中心副楼出现异常回响",
+            arc_context="林默开始主动调查",
+            must_keep=("林默谨慎",),
+            must_avoid=("解释设定",),
+            style_emphasis=("短句推进",),
+        )
+
     async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None, *, on_chunk_progress=None) -> str:
         self.last_draft_intent = intent
         if on_chunk_progress is not None:

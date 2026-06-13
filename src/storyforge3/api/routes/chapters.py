@@ -325,6 +325,18 @@ async def plan_chapter(
     return ok(_intent_to_response(intent))
 
 
+@router.get("/{chapter_no}/plan")
+async def get_chapter_plan(
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService = Depends(get_chapter_service),
+):
+    intent = await service.get_plan(book_id, chapter_no)
+    if intent is None:
+        raise chapter_not_found(book_id, chapter_no)
+    return ok(_intent_to_response(intent))
+
+
 @router.post("/{chapter_no}/draft")
 async def draft_chapter(
     book_id: str,

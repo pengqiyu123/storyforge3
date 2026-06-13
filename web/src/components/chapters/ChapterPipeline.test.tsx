@@ -106,7 +106,15 @@ describe("ChapterPipeline", () => {
   });
 
   it("runs plan action and displays text preview", async () => {
-    const onPlan = vi.fn().mockResolvedValue({ chapter_no: 1, goal: "进入副楼" });
+    const onPlan = vi.fn().mockResolvedValue({
+      chapter_no: 1,
+      goal: "进入副楼",
+      outline_node: "夜灯仓纠纷升级",
+      arc_context: "沈听澜开始主动接话",
+      must_keep: ["保留巡夜队压力"],
+      must_avoid: ["直接解释世界观"],
+      style_emphasis: ["短句推进"]
+    });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     render(
@@ -126,6 +134,9 @@ describe("ChapterPipeline", () => {
     fireEvent.click(screen.getByRole("button", { name: /规划/ }));
 
     await waitFor(() => expect(onPlan).toHaveBeenCalledWith(1));
+    expect(screen.getByTestId("chapter-plan-panel")).toBeInTheDocument();
+    expect(screen.getByText("进入副楼")).toBeInTheDocument();
+    expect(screen.getByText("夜灯仓纠纷升级")).toBeInTheDocument();
   });
 
   it("shows the latest audit result after running audit", async () => {
