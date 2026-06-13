@@ -7,6 +7,7 @@ from fastapi import Depends
 from storyforge3.api.sse import sse_manager as sse_manager
 from storyforge3.config import StoryForge3Config
 from storyforge3.llm.factory import create_llm_service
+from storyforge3.llm.provider_config import ProviderConfigManager
 from storyforge3.logging.pipeline_logger import PipelineLogger
 from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.audit_service import AuditService
@@ -49,6 +50,16 @@ def get_book_service(
 
 def get_llm_service(config: StoryForge3Config = Depends(get_config)):
     return create_llm_service(config)
+
+
+def get_provider_manager(config: StoryForge3Config = Depends(get_config)) -> ProviderConfigManager:
+    """ProviderConfigManager bound to the project config dir.
+
+    Exposed as a dependency so API tests can override it with a manager backed
+    by a FakeReader / FakeLLMService (the inline construction would otherwise
+    read the real CC-Switch DB and place real LLM calls).
+    """
+    return ProviderConfigManager(Path(config.providers_config_dir))
 
 
 def get_world_service(

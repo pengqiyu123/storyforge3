@@ -8,9 +8,6 @@ export function useHealth() {
   });
 }
 
-export function useProviders() {
-  return useQuery({
-    queryKey: ["providers"],
-    queryFn: healthApi.providers
-  });
-}
+// Canonical provider-list query lives in useProviders.ts (owns queryKey ["providers"]).
+// Re-exported here for backward compatibility with existing `useProviders` imports.
+export { useImportedProviders as useProviders } from "@/hooks/useProviders";

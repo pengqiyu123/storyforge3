@@ -83,20 +83,39 @@ Invoke-RestMethod http://localhost:5173/api/health
 
 StoryForge3 默认从 `.storyforge3/providers.json` 读取已导入的 provider。你可以从 CC-Switch 导入，也可以手动创建配置。
 
-### 2.1 使用 CC-Switch 导入
+### 2.1 使用 CC-Switch 导入（推荐）
+
+StoryForge3 读取 CC-Switch 的 SQLite 数据库（`~/.cc-switch/cc-switch.db`，只读），把选中的 provider 导入到项目本地 `.storyforge3/providers.json`。两种方式：
+
+**A. Web UI（推荐）**
 
 1. 先在 CC-Switch 中配置并启用一个 provider。
-2. 启动 StoryForge3 后端和前端。
-3. 在 Web UI 的 Provider 页面查看可导入 provider。
-4. 导入后设置为 active provider。
-5. 使用健康检查验证。
+2. 启动后端（`storyforge3 serve`）和前端（`pnpm dev`）。
+3. 打开 `/settings` → **AI 供应商** 面板：
+   - **导入**：打开「从 CC-Switch 导入」弹窗，勾选 provider（支持全选），点「导入」。CC-Switch 没装时弹窗会提示「未找到 CC-Switch 数据库」。
+   - **切换**：点任一非当前 provider 卡片即可切为 active（实时生效，后端 per-request 读取 providers.json，无需重启）。
+   - **验证**：点卡片上的「验证」做一次健康探测，徽章变为「已验证」/「异常」（探测用的是 provider 配置的真实端点；可能需要数秒）。
+   - **移除**：点「移除」从本地配置删除（不影响 CC-Switch 原始配置，可重新导入）。若移除的是 active，会自动重选。
+4. 刷新页面，active 与已导入列表保持不变（落盘在 providers.json）。
 
-验证：
+**B. CLI / 脚本**（无 UI 时）
 
 ```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/providers
-.\.venv\Scripts\storyforge3.exe health
+.\.venv\Scripts\storyforge3.exe health      # 连通性检查
 ```
+
+或直接调 API（agent 模式走这条）：
+
+```powershell
+# 列出 CC-Switch 中可导入的 provider
+Invoke-RestMethod http://127.0.0.1:8000/api/providers/available
+# 导入
+Invoke-RestMethod -Method POST -Uri http://127.0.0.1:8000/api/providers/import -Body (@{provider_ids=@("cc-xxxx")} | ConvertTo-Json) -ContentType "application/json"
+# 切换 active
+Invoke-RestMethod -Method PUT -Uri http://127.0.0.1:8000/api/providers/active -Body (@{provider_key="cc-xxxx"} | ConvertTo-Json) -ContentType "application/json"
+```
+
+> **手动模式（per-task 模型路由）**：`GET /api/providers/routing` 可读当前 writer/auditor/truth/architect/planner 模型覆盖；`PUT` 暂为 501 桩（配置持久化待 `config_override` 落地）。对应 UI（RoutingPanel）预留接口，后续手动模式启用。
 
 ### 2.2 手动创建 providers.json
 

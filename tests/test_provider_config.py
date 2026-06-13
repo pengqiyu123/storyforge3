@@ -141,7 +141,7 @@ def test_set_active_rejects_unknown_provider(tmp_path: Path) -> None:
         manager.set_active("missing")
 
 
-def test_verify_provider_updates_verified_fields(tmp_path: Path) -> None:
+async def test_verify_provider_updates_verified_fields(tmp_path: Path) -> None:
     keyed = provider("cc-one", "key-one")
     manager = ProviderConfigManager(
         tmp_path,
@@ -157,7 +157,7 @@ def test_verify_provider_updates_verified_fields(tmp_path: Path) -> None:
     )
     manager.import_providers(["cc-one"])
 
-    result = manager.verify_provider("cc-one")
+    result = await manager.verify_provider("cc-one")
 
     assert result["status"] == "verified"
     active = manager.get_active()
@@ -169,7 +169,7 @@ def test_verify_provider_updates_verified_fields(tmp_path: Path) -> None:
     assert active["cc_probe_message"] == "已验证，可用于稿件生成"
 
 
-def test_verify_provider_records_failure(tmp_path: Path) -> None:
+async def test_verify_provider_records_failure(tmp_path: Path) -> None:
     manager = ProviderConfigManager(
         tmp_path,
         reader=FakeReader([provider("cc-one", "key-one")]),
@@ -177,11 +177,65 @@ def test_verify_provider_records_failure(tmp_path: Path) -> None:
     )
     manager.import_providers(["cc-one"])
 
-    result = manager.verify_provider("cc-one")
+    result = await manager.verify_provider("cc-one")
 
     assert result["status"] == "request_failed"
     imported = manager.list_imported(include_secrets=True)
     assert imported[0]["cc_probe_status"] == "request_failed"
+
+
+def test_remove_provider_recomputes_active_when_active_removed(tmp_path: Path) -> None:
+    first = provider("cc-one", "key-one")
+    second = provider("cc-two", "key-two")
+    manager = ProviderConfigManager(tmp_path, reader=FakeReader([first, second]))
+    manager.import_providers(["cc-one", "cc-two"])
+    manager.set_active("cc-one")
+
+    removed = manager.remove_provider("cc-one")
+
+    assert removed is not None
+    assert removed["provider_key"] == "cc-one"
+    # api_key is masked on the returned profile
+    assert "****" in removed["api_key"]
+    active = manager.get_active()
+    assert active is not None
+    assert active["provider_key"] == "cc-two"
+
+
+def test_remove_provider_leaves_active_when_other_removed(tmp_path: Path) -> None:
+    first = provider("cc-one", "key-one")
+    second = provider("cc-two", "key-two")
+    manager = ProviderConfigManager(tmp_path, reader=FakeReader([first, second]))
+    manager.import_providers(["cc-one", "cc-two"])
+    manager.set_active("cc-one")
+
+    removed = manager.remove_provider("cc-two")
+
+    assert removed is not None
+    assert removed["provider_key"] == "cc-two"
+    active = manager.get_active()
+    assert active is not None
+    assert active["provider_key"] == "cc-one"
+
+
+def test_remove_provider_unknown_returns_none(tmp_path: Path) -> None:
+    manager = ProviderConfigManager(tmp_path, reader=FakeReader([]))
+    assert manager.remove_provider("nope") is None
+
+
+def test_is_db_available_delegates_to_reader(tmp_path: Path) -> None:
+    class ReaderWithFlag:
+        def __init__(self, flag: bool) -> None:
+            self.flag = flag
+
+        def read_all_providers(self, app_type: str | None = None) -> list[dict]:
+            return []
+
+        def is_db_available(self) -> bool:
+            return self.flag
+
+    assert ProviderConfigManager(tmp_path, reader=ReaderWithFlag(True)).is_db_available() is True
+    assert ProviderConfigManager(tmp_path, reader=ReaderWithFlag(False)).is_db_available() is False
 
 
 def test_mask_api_key() -> None:

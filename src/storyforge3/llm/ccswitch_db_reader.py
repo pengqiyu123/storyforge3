@@ -15,6 +15,10 @@ class CCSwitchDBReader:
     def __init__(self, db_path: Path) -> None:
         self.db_path = Path(db_path)
 
+    def is_db_available(self) -> bool:
+        """Whether the CC-Switch SQLite database exists on disk."""
+        return self.db_path.exists()
+
     def read_all_providers(self, app_type: str | None = None) -> list[dict]:
         if not self.db_path.exists():
             return []
@@ -94,10 +98,15 @@ class CCSwitchDBReader:
             "provider_key": f"cc-{provider_id}",
             "base_url": extracted["base_url"],
             "api_key": extracted["api_key"],
+            # has_api_key is computed before any masking so callers (e.g. the import dialog)
+            # can show the badge even though list_available() masks api_key itself.
+            "has_api_key": bool(extracted["api_key"]),
             "model_id": extracted["model_id"],
             "enabled": False,
             "source": "cc-switch",
             "cc_app_type": app_type,
+            "cc_is_current": bool(row["is_current"]) if row["is_current"] else False,
+            "cc_category": str(row["category"] or ""),
             "cc_api_format": cc_api_format,
             "cc_is_full_url": self._optional_bool(meta.get("isFullUrl")),
             "cc_endpoint_auto_select": self._optional_bool(meta.get("endpointAutoSelect")),

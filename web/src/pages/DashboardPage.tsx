@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, BookOpen, Clock3, Radio, Sparkles, WandSparkles, Workflow } from "lucide-react";
 import type { ComponentType } from "react";
 import type { Book } from "@/api/books";
-import type { Provider } from "@/api/health";
+import type { ImportedProvider } from "@/api/providers";
 import { useBooks } from "@/hooks/useBooks";
 import { useHealth, useProviders } from "@/hooks/useHealth";
 import { Badge } from "@/components/ui/badge";
@@ -88,7 +88,7 @@ function ProviderStatusCard({
   providers
 }: {
   isLoading: boolean;
-  providers: Provider[];
+  providers: ImportedProvider[];
 }) {
   const enabledProviders = providers.filter((provider) => provider.enabled);
   const activeProvider = providers.find((provider) => provider.active) ?? (enabledProviders.length === 1 ? enabledProviders[0] : undefined);

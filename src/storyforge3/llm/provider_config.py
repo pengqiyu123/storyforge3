@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -32,6 +31,10 @@ class ProviderConfigManager:
 
     def list_available(self) -> list[dict]:
         return [self._mask_profile(provider) for provider in self._reader.read_all_providers()]
+
+    def is_db_available(self) -> bool:
+        """Whether the CC-Switch source database exists (drives the import dialog state)."""
+        return self._reader.is_db_available()
 
     def import_providers(self, provider_ids: list[str]) -> list[dict]:
         data = self._load()
@@ -81,13 +84,16 @@ class ProviderConfigManager:
             return providers
         return [self._mask_profile(provider) for provider in providers]
 
-    def verify_provider(self, provider_key: str) -> dict:
+    async def verify_provider(self, provider_key: str) -> dict:
+        # .. versionchanged:: now async — awaits check_health directly so it is safe
+        # to call from an async FastAPI route (the previous asyncio.run would raise
+        # "asyncio.run() cannot be called from a running event loop").
         data = self._load()
         profile = self._find_profile(data, provider_key)
         provider = build_provider_from_profile(profile)
         try:
             service = self._build_service(provider)
-            ok = asyncio.run(service.check_health())
+            ok = await service.check_health()
         except Exception as exc:
             self._write_probe_failure(data, profile, str(exc))
             return {"status": "request_failed", "message": str(exc)}
@@ -101,6 +107,29 @@ class ProviderConfigManager:
             "resolved_format": profile.get("cc_last_verified_format"),
             "resolved_model": profile.get("cc_last_verified_model"),
         }
+
+    def remove_provider(self, provider_key: str) -> dict | None:
+        """Remove an imported provider profile by key.
+
+        Recomputes the active provider when the removed one was active (reuses the
+        same first-keyed-provider rule as import). Never writes to the CC-Switch
+        database — only the project-local providers.json. Returns the masked removed
+        profile, or None when the key is not imported.
+        """
+        data = self._load()
+        removed = next(
+            (p for p in data.get("providers", []) if p.get("provider_key") == provider_key),
+            None,
+        )
+        if removed is None:
+            return None
+        data["providers"] = [
+            p for p in data.get("providers", []) if p.get("provider_key") != provider_key
+        ]
+        if data.get("active_provider_key") == provider_key:
+            data["active_provider_key"] = self._first_keyed_provider_key(data["providers"])
+        self._save(data)
+        return self._mask_profile(removed)
 
     def _build_service(self, provider: dict) -> Any:
         if self._service_factory is not None:

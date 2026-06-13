@@ -52,7 +52,8 @@ export const api = {
     request<T>(path, {
       method: "PATCH",
       body: JSON.stringify(body)
-    })
+    }),
+  delete: <T>(path: string) => request<T>(path, { method: "DELETE" })
 };
 
 export async function exportChapterDesktop(bookId: string, chapterNo: number, fmt: string, chapterTitle: string): Promise<string | null> {
