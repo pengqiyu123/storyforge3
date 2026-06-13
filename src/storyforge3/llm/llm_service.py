@@ -21,11 +21,12 @@ COMPAT_SUFFIXES = (
     "/api/claudecode",
     "/api/anthropic",
     "/apps/anthropic",
-    "/api/coding",
+    # NOTE: "/api/coding" and "/coding" intentionally NOT stripped — Volcano Engine
+    # (火山引擎) Coding Plan uses /api/coding as a real path prefix
+    # (endpoint = .../api/coding/v1/messages). Stripping it corrupts the route.
     "/claudecode",
     "/anthropic",
     "/step_plan",
-    "/coding",
     "/claude",
 )
 TERMINAL_PATHS = (

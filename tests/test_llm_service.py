@@ -40,8 +40,8 @@ def provider(**overrides) -> dict:
         "cc_api_format": "openai_responses",
         "cc_is_full_url": False,
         "cc_endpoint_auto_select": True,
-        "cc_endpoint_candidates": ["https://primary.test/api/coding", "https://secondary.test/v1"],
-        "cc_base_url_raw": "https://primary.test/api/coding",
+        "cc_endpoint_candidates": ["https://primary.test", "https://secondary.test/v1"],
+        "cc_base_url_raw": "https://primary.test",
         "cc_usage_base_url": "https://usage.test",
         "cc_last_verified_endpoint": None,
         "cc_last_verified_format": None,
@@ -56,8 +56,9 @@ def response_text(text: str, *, model: str = "gpt-5.5") -> dict:
 
 
 def test_build_endpoint_url_removes_compat_suffixes_and_adds_protocol_path() -> None:
+    # Volcano Engine (火山引擎) /api/coding is a real path prefix, NOT a compat suffix — preserved.
     assert build_endpoint_url("https://relay.test/api/coding", "openai_chat", "gpt-5.5", False) == (
-        "https://relay.test/v1/chat/completions"
+        "https://relay.test/api/coding/v1/chat/completions"
     )
     assert build_endpoint_url("https://relay.test/v1", "openai_responses", "gpt-5.5", False) == "https://relay.test/v1/responses"
     assert build_endpoint_url("https://relay.test/anthropic", "anthropic", "claude-sonnet-4", False) == "https://relay.test/v1/messages"
