@@ -14,7 +14,7 @@ htmlcov/
 .venv/
 .vscode/
 .idea/
-books/
+/books/
 profiles/
 .storyforge3/
 .DS_Store
