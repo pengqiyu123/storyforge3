@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import asdict
 from pathlib import Path
@@ -7,7 +8,7 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from storyforge3.api.deps import get_chapter_service
+from storyforge3.api.deps import get_chapter_service, get_run_registry
 from storyforge3.api.errors import chapter_empty, chapter_not_found, content_conflict, internal_error, invalid_parameter, state_error
 from storyforge3.api.response import ok
 from storyforge3.api.sse import PipelineEvent, make_chunk_event, make_progress_event, sse_manager
@@ -16,9 +17,10 @@ from storyforge3.audit.llm_auditor import LLMAuditIssue, LLMAuditResult
 from storyforge3.export.formatter import PlatformFormatter
 from storyforge3.export.markdown import format_markdown_chapter
 from storyforge3.export.qidian import format_qidian_chapter
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, RevisionDiff, RuleResult
+from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, PipelineRunRecord, RevisionDiff, RuleResult, StageResult
 from storyforge3.services.chapter_service import ChapterService
 from storyforge3.services.length_normalizer import LengthNormalizationResult
+from storyforge3.services.run_registry import RunRegistry
 from storyforge3.state.machine import InvalidTransitionError
 from storyforge3.truth.extractor import TruthExtractionError
 
@@ -55,6 +57,38 @@ class UpdateTextRequest(BaseModel):
 
 class ExportRequest(BaseModel):
     fmt: str = "tomato_txt"
+
+
+class RunStartResponse(BaseModel):
+    run_id: str
+
+
+class StageResultResponse(BaseModel):
+    stage: str
+    status: str
+    started_at: str
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    summary: dict | None = None
+
+
+class PipelineRunRecordResponse(BaseModel):
+    run_id: str
+    book_id: str
+    chapter_no: int
+    mode: str
+    target_stages: list[str]
+    status: str
+    current_stage: str | None
+    started_at: str
+    updated_at: str
+    stage_results: dict[str, StageResultResponse] = Field(default_factory=dict)
+    llm_calls: list[dict] = Field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    resume_from: str | None = None
 
 
 class ChapterTextResponse(BaseModel):
@@ -248,6 +282,29 @@ def _diff_to_response(diff: RevisionDiff) -> RevisionDiffResponse:
 
 def _path_to_response(path: Path) -> ExportResponse:
     return ExportResponse(path=str(path))
+
+
+def _stage_result_to_response(result: StageResult) -> StageResultResponse:
+    return StageResultResponse(**asdict(result))
+
+
+def _run_record_to_response(record: PipelineRunRecord) -> PipelineRunRecordResponse:
+    return PipelineRunRecordResponse(
+        run_id=record.run_id,
+        book_id=record.book_id,
+        chapter_no=record.chapter_no,
+        mode=record.mode,
+        target_stages=list(record.target_stages),
+        status=record.status.value if hasattr(record.status, "value") else str(record.status),
+        current_stage=record.current_stage,
+        started_at=record.started_at,
+        updated_at=record.updated_at,
+        stage_results={stage: _stage_result_to_response(result) for stage, result in record.stage_results.items()},
+        llm_calls=list(record.llm_calls),
+        error_code=record.error_code,
+        error_message=record.error_message,
+        resume_from=record.resume_from,
+    )
 
 
 def _preview_to_response(result: ChapterResult, fmt: str) -> ExportPreviewResponse:
@@ -469,7 +526,10 @@ async def export_chapter(
     req: ExportRequest | None = None,
     service: ChapterService = Depends(get_chapter_service),
 ):
-    path = await service.export(book_id, chapter_no, (req or ExportRequest()).fmt)
+    try:
+        path = await service.export(book_id, chapter_no, (req or ExportRequest()).fmt)
+    except ValueError as exc:
+        raise state_error(str(exc)) from exc
     return ok(_path_to_response(path))
 
 
@@ -494,26 +554,56 @@ async def run_full_pipeline(
     book_id: str,
     chapter_no: int,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
-    await _publish_start(book_id, chapter_no, "full_pipeline", f"开始第 {chapter_no} 章完整管线")
-    try:
-        result = await service.run_full_pipeline(book_id, chapter_no, human_confirm=lambda _: True)
-        await _publish_complete(
-            book_id,
-            chapter_no,
-            "full_pipeline",
-            {"status": result.status.value if hasattr(result.status, "value") else str(result.status), "error": result.error},
-        )
-        return ok(_result_to_response(result))
-    except InvalidTransitionError as exc:
-        await _publish_error(book_id, chapter_no, str(exc), "full_pipeline")
-        raise state_error(str(exc)) from exc
-    except TruthExtractionError as exc:
-        await _publish_error(book_id, chapter_no, str(exc), "full_pipeline")
-        raise internal_error(str(exc)) from exc
-    except Exception as exc:
-        await _publish_error(book_id, chapter_no, str(exc), "full_pipeline")
-        raise internal_error(str(exc)) from exc
+    target_stages = ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
+    record = registry.start(book_id, chapter_no, mode="full", target_stages=target_stages)
+    task = asyncio.create_task(_run_full_pipeline_background(record.run_id, book_id, chapter_no, service, registry))
+    registry.attach_task(record.run_id, task)
+    return ok(RunStartResponse(run_id=record.run_id))
+
+
+@router.get("/{chapter_no}/run")
+async def get_chapter_run(
+    book_id: str,
+    chapter_no: int,
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    record = registry.get_current(book_id, chapter_no)
+    if record is None:
+        raise chapter_not_found(book_id, chapter_no)
+    return ok(_run_record_to_response(record))
+
+
+@router.post("/{chapter_no}/run/{run_id}/resume")
+async def resume_chapter_run(
+    book_id: str,
+    chapter_no: int,
+    run_id: str,
+    service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    record = registry.get(run_id)
+    if record is None or record.book_id != book_id or record.chapter_no != chapter_no:
+        raise chapter_not_found(book_id, chapter_no)
+    if record.resume_from is None:
+        raise state_error("run is not resumable")
+    task = asyncio.create_task(_run_full_pipeline_background(run_id, book_id, chapter_no, service, registry, resume_from=record.resume_from))
+    registry.attach_task(run_id, task)
+    return ok(_run_record_to_response(registry.mark_run_start(run_id)))
+
+
+@router.post("/{chapter_no}/run/{run_id}/cancel")
+async def cancel_chapter_run(
+    book_id: str,
+    chapter_no: int,
+    run_id: str,
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    record = registry.get(run_id)
+    if record is None or record.book_id != book_id or record.chapter_no != chapter_no:
+        raise chapter_not_found(book_id, chapter_no)
+    return ok(_run_record_to_response(registry.cancel(run_id)))
 
 
 @router.get("/{chapter_no}/status")
@@ -543,10 +633,234 @@ async def get_chapter_status(
     return ok(_result_to_response(result))
 
 
+async def _run_full_pipeline_background(
+    run_id: str,
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService,
+    registry: RunRegistry,
+    *,
+    resume_from: str | None = None,
+) -> None:
+    target_stages = ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
+    await _publish_run_start(book_id, chapter_no, run_id, "full", target_stages)
+    registry.mark_run_start(run_id)
+    stages_to_run = _stages_from(resume_from, target_stages)
+    text = ""
+    audit: AuditResult | None = None
+    try:
+        if "plan" in stages_to_run:
+            await _run_stage(registry, run_id, book_id, chapter_no, "plan", lambda: service.plan(book_id, chapter_no), _summarize_intent)
+        if "draft" in stages_to_run:
+            text = await _run_stage(
+                registry,
+                run_id,
+                book_id,
+                chapter_no,
+                "draft",
+                lambda: service.draft(
+                    book_id,
+                    chapter_no,
+                    on_chunk_progress=lambda completed, total: _publish_stage_progress(book_id, chapter_no, run_id, "draft", completed, total),
+                    on_chunk=lambda chunk_text, completed, total: _publish_llm_chunk(book_id, chapter_no, run_id, chunk_text),
+                ),
+                lambda result: {"chars": len(result)},
+            )
+        if "audit" in stages_to_run:
+            audit = await _run_stage(registry, run_id, book_id, chapter_no, "audit", lambda: service.audit(book_id, chapter_no), _summarize_audit)
+        if "revise" in stages_to_run:
+            if audit is not None and audit.passed:
+                summary = {"reason": "audit_passed"}
+                registry.mark_stage_skipped(run_id, "revise", summary)
+                await _publish_stage_complete(book_id, chapter_no, run_id, "revise", summary)
+            else:
+                revised = await _run_stage(registry, run_id, book_id, chapter_no, "revise", lambda: service.revise(book_id, chapter_no), _summarize_result)
+                text = revised.text
+        if "approve" in stages_to_run:
+            registry.mark_stage_start(run_id, "approve")
+            await _publish_stage_start(book_id, chapter_no, run_id, "approve", "开始 approve")
+            registry.mark_stage_complete(run_id, "approve", {"human_confirmed": True})
+            await _publish_stage_complete(book_id, chapter_no, run_id, "approve", {"human_confirmed": True})
+        approved = None
+        if "truth" in stages_to_run:
+            approved = await _run_stage(registry, run_id, book_id, chapter_no, "truth", lambda: service.approve(book_id, chapter_no), _summarize_result)
+        if "export" in stages_to_run:
+            await _run_stage(registry, run_id, book_id, chapter_no, "export", lambda: service.export(book_id, chapter_no), lambda path: {"path": str(path)})
+        summary = {
+            "status": "exported",
+            "chars": len(text),
+            "truth_status": _result_status_value(approved),
+        }
+        registry.complete(run_id)
+        await _publish_run_complete(book_id, chapter_no, run_id, summary)
+    except asyncio.CancelledError:
+        current = registry.get(run_id)
+        if current is not None and current.status.value == "cancelled":
+            return
+        stage = current.current_stage if current else None
+        registry.fail(run_id, "cancelled", "run cancelled", resume_from=stage)
+        await _publish_stage_error(book_id, chapter_no, run_id, stage or "run", "run cancelled")
+        raise
+    except InvalidTransitionError as exc:
+        current = registry.get(run_id)
+        stage = current.current_stage if current else "run"
+        registry.mark_stage_failed(run_id, stage or "run", "state_error", str(exc))
+        await _publish_stage_error(book_id, chapter_no, run_id, stage or "run", str(exc))
+    except TruthExtractionError as exc:
+        registry.mark_stage_failed(run_id, "truth", "truth_error", str(exc))
+        await _publish_stage_error(book_id, chapter_no, run_id, "truth", str(exc))
+    except Exception as exc:
+        current = registry.get(run_id)
+        stage = current.current_stage if current else "run"
+        registry.mark_stage_failed(run_id, stage or "run", "internal_error", str(exc))
+        await _publish_stage_error(book_id, chapter_no, run_id, stage or "run", str(exc))
+    finally:
+        registry.detach_task(run_id)
+
+
+async def _run_stage(
+    registry: RunRegistry,
+    run_id: str,
+    book_id: str,
+    chapter_no: int,
+    stage: str,
+    action,
+    summarize,
+):
+    registry.mark_stage_start(run_id, stage)
+    await _publish_stage_start(book_id, chapter_no, run_id, stage, f"开始 {stage}")
+    try:
+        result = await action()
+    except Exception as exc:
+        registry.mark_stage_failed(run_id, stage, exc.__class__.__name__, str(exc))
+        await _publish_stage_error(book_id, chapter_no, run_id, stage, str(exc))
+        raise
+    summary = summarize(result)
+    registry.mark_stage_complete(run_id, stage, summary)
+    await _publish_stage_complete(book_id, chapter_no, run_id, stage, summary)
+    return result
+
+
+def _stages_from(resume_from: str | None, target_stages: list[str]) -> list[str]:
+    if resume_from is None:
+        return list(target_stages)
+    if resume_from not in target_stages:
+        return list(target_stages)
+    return target_stages[target_stages.index(resume_from) + 1 :]
+
+
+def _summarize_intent(intent: ChapterIntent) -> dict:
+    return {"goal": intent.goal, "chapter_no": intent.chapter_no}
+
+
+def _summarize_audit(audit: AuditResult) -> dict:
+    return {
+        "passed": audit.passed,
+        "blocking_count": len(audit.blocking_issues),
+        "warning_count": len(audit.warnings),
+    }
+
+
+def _summarize_result(result: ChapterResult) -> dict:
+    return {
+        "status": result.status.value if hasattr(result.status, "value") else str(result.status),
+        "chars": len(result.text),
+        "error": result.error,
+    }
+
+
+def _result_status_value(result: ChapterResult | None) -> str | None:
+    if result is None:
+        return None
+    return result.status.value if hasattr(result.status, "value") else str(result.status)
+
+
 async def _publish_start(book_id: str, chapter_no: int, stage: str, message: str) -> None:
     await sse_manager.publish(
         PipelineEvent(
             type="pipeline:start",
+            book_id=book_id,
+            chapter_no=chapter_no,
+            stage=stage,
+            message=message,
+        )
+    )
+
+
+async def _publish_run_start(book_id: str, chapter_no: int, run_id: str, mode: str, target_stages: list[str]) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="run:start",
+            run_id=run_id,
+            book_id=book_id,
+            chapter_no=chapter_no,
+            detail={"mode": mode, "target_stages": target_stages},
+        )
+    )
+
+
+async def _publish_run_complete(book_id: str, chapter_no: int, run_id: str, detail: dict | None = None) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="run:complete",
+            run_id=run_id,
+            book_id=book_id,
+            chapter_no=chapter_no,
+            detail=detail,
+        )
+    )
+
+
+async def _publish_stage_start(book_id: str, chapter_no: int, run_id: str, stage: str, message: str) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="stage:start",
+            run_id=run_id,
+            book_id=book_id,
+            chapter_no=chapter_no,
+            stage=stage,
+            message=message,
+        )
+    )
+
+
+async def _publish_stage_complete(book_id: str, chapter_no: int, run_id: str, stage: str, detail: dict | None = None) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="stage:complete",
+            run_id=run_id,
+            book_id=book_id,
+            chapter_no=chapter_no,
+            stage=stage,
+            detail=detail,
+        )
+    )
+
+
+async def _publish_stage_progress(book_id: str, chapter_no: int, run_id: str, stage: str, completed: int, total: int) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="stage:progress",
+            run_id=run_id,
+            book_id=book_id,
+            chapter_no=chapter_no,
+            stage=stage,
+            message=f"正在执行第 {completed}/{total} 段",
+            detail={"completed": completed, "total": total},
+        )
+    )
+
+
+async def _publish_llm_chunk(book_id: str, chapter_no: int, run_id: str, text: str) -> None:
+    event = make_chunk_event(book_id, chapter_no, text)
+    await sse_manager.publish(event.model_copy(update={"run_id": run_id}))
+
+
+async def _publish_stage_error(book_id: str, chapter_no: int, run_id: str, stage: str, message: str) -> None:
+    await sse_manager.publish(
+        PipelineEvent(
+            type="stage:error",
+            run_id=run_id,
             book_id=book_id,
             chapter_no=chapter_no,
             stage=stage,

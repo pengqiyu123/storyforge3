@@ -14,7 +14,7 @@ def test_storage_paths_resolve_book_files(tmp_path: Path) -> None:
     assert paths.relationships("book").name == "relationships.json"
     assert paths.volumes("book").name == "volumes.json"
     assert paths.chapter_file("book", 3).name == "0003.md"
-    assert paths.truth_file("book", 3).name == "truth_0003.json"
+    assert paths.truth_file("book", 3).name == "chapter-0003.json"
     assert paths.export_file("book", 3, "txt").name == "chapter-0003.txt"
     assert paths.chapter_states("book").name == "chapter_states.json"
 

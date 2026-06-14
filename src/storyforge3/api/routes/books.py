@@ -3,11 +3,12 @@ from __future__ import annotations
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends
 
-from storyforge3.api.deps import get_book_service
+from storyforge3.api.deps import get_book_service, get_chapter_reconciler
 from storyforge3.api.errors import book_not_found, invalid_parameter
 from storyforge3.api.response import ok
 from storyforge3.models import BookConfig, BookMeta
 from storyforge3.services.book_service import BookService
+from storyforge3.services.chapter_reconciler import BookReconciliation, ChapterConsistency, ChapterReconciler
 
 router = APIRouter(prefix="/books", tags=["books"])
 
@@ -41,6 +42,26 @@ class BookResponse(BaseModel):
     fanfic_mode: str = ""
 
 
+class ChapterConsistencyResponse(BaseModel):
+    chapter_no: int
+    has_text: bool
+    has_plan: bool
+    has_truth: bool
+    has_export: bool
+    has_state: bool
+    has_run: bool
+    state_status: str | None
+    status: str
+    inconsistent_reasons: list[str]
+
+
+class BookReconciliationResponse(BaseModel):
+    book_id: str
+    chapters: list[ChapterConsistencyResponse]
+    inconsistent_count: int
+    max_chapter: int
+
+
 def _meta_to_response(meta: BookMeta) -> BookResponse:
     return BookResponse(
         book_id=meta.book_id,
@@ -55,6 +76,30 @@ def _meta_to_response(meta: BookMeta) -> BookResponse:
         created_at=meta.created_at,
         updated_at=meta.updated_at,
         fanfic_mode=meta.fanfic_mode,
+    )
+
+
+def _consistency_to_response(item: ChapterConsistency) -> ChapterConsistencyResponse:
+    return ChapterConsistencyResponse(
+        chapter_no=item.chapter_no,
+        has_text=item.has_text,
+        has_plan=item.has_plan,
+        has_truth=item.has_truth,
+        has_export=item.has_export,
+        has_state=item.has_state,
+        has_run=item.has_run,
+        state_status=item.state_status,
+        status=item.status,
+        inconsistent_reasons=list(item.inconsistent_reasons),
+    )
+
+
+def _reconciliation_to_response(result: BookReconciliation) -> BookReconciliationResponse:
+    return BookReconciliationResponse(
+        book_id=result.book_id,
+        chapters=[_consistency_to_response(item) for item in result.chapters],
+        inconsistent_count=result.inconsistent_count,
+        max_chapter=result.max_chapter,
     )
 
 
@@ -91,6 +136,14 @@ async def get_book(
     if meta is None:
         raise book_not_found(book_id)
     return ok(_meta_to_response(meta))
+
+
+@router.get("/{book_id}/reconcile")
+async def reconcile_book(
+    book_id: str,
+    reconciler: ChapterReconciler = Depends(get_chapter_reconciler),
+):
+    return ok(_reconciliation_to_response(reconciler.reconcile(book_id)))
 
 
 @router.patch("/{book_id}/status")

@@ -51,6 +51,7 @@ def approve_chapter(paths: StoragePaths, book_id: str, chapter_no: int) -> None:
     machine.advance(book_id, chapter_no, ChapterStatus.DRAFTED)
     machine.advance(book_id, chapter_no, ChapterStatus.AUDITED)
     machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
+    machine.advance(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED)
 
 
 @pytest.fixture
@@ -148,6 +149,7 @@ def test_export_book_rejects_missing_book(config: StoryForge3Config) -> None:
 def test_chapter_service_routes_new_export_formats(config: StoryForge3Config, export_workspace) -> None:
     storage, paths, _root = export_workspace
     service = ChapterService(config, storage=storage, paths=paths)
+    approve_chapter(paths, "lurenjia", 1)
 
     md_path = run(service.export("lurenjia", 1, "md"))
     qidian_path = run(service.export("lurenjia", 1, "qidian_txt"))

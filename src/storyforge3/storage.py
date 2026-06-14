@@ -35,11 +35,23 @@ class StoragePaths:
     def chapter_file(self, book_id: str, chapter_no: int) -> Path:
         return self.book_dir(book_id) / "chapters" / f"{chapter_no:04d}.md"
 
+    def chapter_dir(self, book_id: str, chapter_no: int) -> Path:
+        return self.book_dir(book_id) / "chapters" / f"{chapter_no:04d}"
+
+    def run_dir(self, book_id: str, chapter_no: int) -> Path:
+        return self.chapter_dir(book_id, chapter_no) / "runs"
+
+    def run_file(self, book_id: str, chapter_no: int, run_id: str) -> Path:
+        return self.run_dir(book_id, chapter_no) / f"{run_id}.json"
+
+    def current_run_file(self, book_id: str, chapter_no: int) -> Path:
+        return self.run_dir(book_id, chapter_no) / "current_run.json"
+
     def plan_file(self, book_id: str, chapter_no: int) -> Path:
         return self.book_dir(book_id) / "plans" / f"{chapter_no:04d}.json"
 
     def truth_file(self, book_id: str, chapter_no: int) -> Path:
-        return self.book_dir(book_id) / "truth" / f"truth_{chapter_no:04d}.json"
+        return self.book_dir(book_id) / "truth" / f"chapter-{chapter_no:04d}.json"
 
     def export_file(self, book_id: str, chapter_no: int, fmt: str) -> Path:
         extension = "txt" if fmt in {"txt", "tomato", "tomato_txt"} else fmt

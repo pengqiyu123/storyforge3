@@ -45,12 +45,16 @@ class ProviderConfigManager:
             if provider.get("id") not in selected_ids and provider.get("provider_key") not in selected_ids:
                 continue
             profile = dict(provider)
+            if not profile.get("api_key"):
+                continue
             old = existing_by_id.get(str(profile.get("id")))
             if old is not None:
                 profile = self._merge_profile(old, profile)
             profile["enabled"] = bool(profile.get("api_key"))
             existing_by_id[str(profile["id"])] = profile
             imported.append(profile)
+        if not imported:
+            raise ValueError("No importable provider selected: CC-Switch provider has no API key")
         data["providers"] = self._merged_provider_list(data["providers"], existing_by_id, imported)
         if not self._active_has_key(data):
             data["active_provider_key"] = self._first_keyed_provider_key(data["providers"])

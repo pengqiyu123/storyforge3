@@ -24,20 +24,22 @@ export function CCImportDialog({ open, onOpenChange }: CCImportDialogProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
   const providers = available.data?.providers ?? [];
+  const importableProviders = providers.filter((provider) => provider.has_api_key);
   const dbAvailable = available.data?.db_available ?? true;
-  const allSelected = providers.length > 0 && selected.size === providers.length;
+  const allSelected = importableProviders.length > 0 && selected.size === importableProviders.length;
 
-  function toggle(id: string) {
+  function toggle(info: CCSwitchProviderInfo) {
+    if (!info.has_api_key) return;
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(info.id)) next.delete(info.id);
+      else next.add(info.id);
       return next;
     });
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(providers.map((p) => p.id)));
+    setSelected(allSelected ? new Set() : new Set(importableProviders.map((p) => p.id)));
   }
 
   async function handleImport() {
@@ -64,7 +66,7 @@ export function CCImportDialog({ open, onOpenChange }: CCImportDialogProps) {
             type="button"
             className="flex items-center gap-2 text-sm text-zinc-300 disabled:opacity-50"
             onClick={toggleAll}
-            disabled={providers.length === 0}
+            disabled={importableProviders.length === 0}
           >
             <SelectBox checked={allSelected} />
             全选
@@ -89,7 +91,7 @@ export function CCImportDialog({ open, onOpenChange }: CCImportDialogProps) {
             </p>
           ) : (
             providers.map((info) => (
-              <ImportRow key={info.id} info={info} checked={selected.has(info.id)} onToggle={() => toggle(info.id)} />
+              <ImportRow key={info.id} info={info} checked={selected.has(info.id)} onToggle={() => toggle(info)} />
             ))
           )}
         </div>
@@ -128,12 +130,14 @@ function ImportRow({
   onToggle: () => void;
 }) {
   const isRelay = !info.model_id.trim();
+  const canImport = info.has_api_key;
   return (
     <button
       type="button"
       onClick={onToggle}
-      className={`flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors ${
-        checked ? "border-amber-300/40 bg-amber-300/5" : "border-zinc-800 bg-zinc-950/50 hover:border-zinc-700"
+      disabled={!canImport}
+      className={`flex w-full items-start gap-3 rounded-md border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-55 ${
+        checked ? "border-amber-300/40 bg-amber-300/5" : "border-zinc-800 bg-zinc-950/50 enabled:hover:border-zinc-700"
       }`}
     >
       <span className="mt-0.5">
@@ -144,6 +148,7 @@ function ImportRow({
           <p className="truncate text-sm font-medium text-zinc-100">{info.label || info.provider_key}</p>
           {info.cc_is_current ? <Badge variant="active">当前使用</Badge> : null}
           {info.cc_health?.is_healthy === false ? <Badge variant="archived">异常</Badge> : null}
+          {!canImport ? <Badge variant="archived">无密钥</Badge> : null}
           {isRelay ? <Badge variant="muted">中转站</Badge> : null}
           {info.cc_api_format ? <Badge variant="muted">{info.cc_api_format}</Badge> : null}
         </div>

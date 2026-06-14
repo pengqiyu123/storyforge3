@@ -95,7 +95,7 @@ class ExportService:
             chapter_no = self._chapter_no_from_path(path)
             if chapter_no is None:
                 continue
-            if approved_only and machine.current_status(book_id, chapter_no) not in {ChapterStatus.APPROVED, ChapterStatus.EXPORTED}:
+            if approved_only and machine.current_status(book_id, chapter_no) not in {ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED}:
                 continue
             text = self.storage.read_text(path)
             if text is not None:

@@ -86,6 +86,12 @@ def test_build_endpoint_url_removes_compat_suffixes_and_adds_protocol_path() -> 
     assert build_endpoint_url("https://relay.test/api/coding", "openai_chat", "gpt-5.5", False) == (
         "https://relay.test/api/coding/v1/chat/completions"
     )
+    assert build_endpoint_url("https://relay.test/api/coding", "openai_responses", "gpt-5.5", False) == (
+        "https://relay.test/api/coding/v1/responses"
+    )
+    assert build_endpoint_url("https://relay.test/api/coding", "anthropic", "claude-sonnet-4", False) == (
+        "https://relay.test/api/coding/v1/messages"
+    )
     assert build_endpoint_url("https://relay.test/v1", "openai_responses", "gpt-5.5", False) == "https://relay.test/v1/responses"
     assert build_endpoint_url("https://relay.test/anthropic", "anthropic", "claude-sonnet-4", False) == "https://relay.test/v1/messages"
     assert build_endpoint_url("https://relay.test/api", "gemini_native", "gemini-2.5-pro", False) == (
@@ -108,6 +114,19 @@ def test_route_candidates_prioritize_verified_and_dedupe() -> None:
     assert len(routes) == len({(route.endpoint, route.api_format, route.model_id) for route in routes})
     assert Route("https://primary.test/v1/responses", "openai_responses", "gpt-5.5", False) in routes
     assert Route("https://primary.test/v1/chat/completions", "openai_chat", "gpt-5.5", False) in routes
+
+
+def test_route_candidates_preserve_volcano_api_coding_prefix() -> None:
+    routes = _build_route_candidates(
+        provider(
+            cc_endpoint_candidates=["https://primary.test/api/coding"],
+            cc_base_url_raw=None,
+            cc_usage_base_url=None,
+        )
+    )
+
+    assert Route("https://primary.test/api/coding/v1/responses", "openai_responses", "gpt-5.5", False) in routes
+    assert Route("https://primary.test/api/coding/v1/chat/completions", "openai_chat", "gpt-5.5", False) in routes
 
 
 def test_route_candidates_respect_auto_select_false() -> None:

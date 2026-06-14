@@ -13,11 +13,13 @@ from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.audit_service import AuditService
 from storyforge3.services.book_service import BookService
 from storyforge3.services.chapter_service import ChapterService
+from storyforge3.services.chapter_reconciler import ChapterReconciler
 from storyforge3.services.character_service import CharacterService
 from storyforge3.services.daemon_service import DaemonService
 from storyforge3.services.export_service import ExportService
 from storyforge3.services.fanfic_service import FanficService
 from storyforge3.services.prompt_service import PromptService
+from storyforge3.services.run_registry import RunRegistry
 from storyforge3.services.short_story_service import ShortStoryService
 from storyforge3.services.style_service import StyleService
 from storyforge3.services.truth_service import TruthService
@@ -27,6 +29,9 @@ from storyforge3.services.world_service import WorldService
 from storyforge3.storage import BookStorage, StoragePaths
 from storyforge3.truth.extractor import TruthExtractor
 from storyforge3.truth.store import TruthStore
+
+
+_RUN_REGISTRIES: dict[str, RunRegistry] = {}
 
 
 def get_config() -> StoryForge3Config:
@@ -59,7 +64,10 @@ def get_provider_manager(config: StoryForge3Config = Depends(get_config)) -> Pro
     by a FakeReader / FakeLLMService (the inline construction would otherwise
     read the real CC-Switch DB and place real LLM calls).
     """
-    return ProviderConfigManager(Path(config.providers_config_dir))
+    return ProviderConfigManager(
+        config.resolved_providers_config_dir(),
+        ccswitch_db_path=config.resolved_ccswitch_db_path(),
+    )
 
 
 def get_world_service(
@@ -93,11 +101,31 @@ def get_pipeline_logger(config: StoryForge3Config = Depends(get_config)) -> Pipe
     return PipelineLogger(config.books_dir)
 
 
+def get_run_registry(
+    storage: BookStorage = Depends(get_storage),
+    paths: StoragePaths = Depends(get_paths),
+) -> RunRegistry:
+    key = str(paths.books_root.resolve())
+    registry = _RUN_REGISTRIES.get(key)
+    if registry is None:
+        registry = RunRegistry(storage, paths)
+        registry.scan_resumable_runs()
+        _RUN_REGISTRIES[key] = registry
+    return registry
+
+
 def get_chapter_service(
     config: StoryForge3Config = Depends(get_config),
     logger: PipelineLogger = Depends(get_pipeline_logger),
 ) -> ChapterService:
     return ChapterService(config, pipeline_logger=logger)
+
+
+def get_chapter_reconciler(
+    storage: BookStorage = Depends(get_storage),
+    paths: StoragePaths = Depends(get_paths),
+) -> ChapterReconciler:
+    return ChapterReconciler(storage, paths)
 
 
 def get_export_service(

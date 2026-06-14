@@ -162,6 +162,19 @@ def test_import_providers_endpoint_returns_imported_and_active(client, config):
     assert data["active_provider_key"] == "cc-one"
 
 
+def test_import_providers_endpoint_rejects_no_key_selection(client, config):
+    manager = ProviderConfigManager(
+        Path(config.providers_config_dir), reader=FakeReader([_cc_provider("cc-empty", api_key="")])
+    )
+    _use_manager(client, manager)
+
+    resp = client.post("/api/providers/import", json={"provider_ids": ["cc-empty"]})
+
+    assert resp.status_code == 400
+    assert resp.json()["error"]["code"] == "NO_IMPORTABLE_PROVIDER"
+    assert manager.list_imported(include_secrets=True) == []
+
+
 # ── set active ───────────────────────────────────────────────────────────────
 
 def test_set_active_endpoint_switches_active(client, config):

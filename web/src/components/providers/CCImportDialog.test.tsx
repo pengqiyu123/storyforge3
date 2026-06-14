@@ -25,6 +25,14 @@ const one = {
   cc_is_current: false
 };
 const two = { ...one, id: "cc-two", label: "Two", provider_key: "cc-two" };
+const noKey = {
+  ...one,
+  id: "cc-empty",
+  label: "No Key",
+  provider_key: "cc-empty",
+  has_api_key: false,
+  api_key_preview: ""
+};
 
 describe("CCImportDialog", () => {
   beforeEach(() => {
@@ -53,5 +61,16 @@ describe("CCImportDialog", () => {
     fireEvent.click(screen.getByRole("button", { name: /^导入\(/ }));
     await waitFor(() => expect(importMutateAsync).toHaveBeenCalledWith(["cc-one", "cc-two"]));
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
+  });
+
+  it("disables no-key providers and excludes them from 全选", async () => {
+    availableState = { data: { providers: [one, noKey], db_available: true }, isLoading: false };
+    render(<CCImportDialog open={true} onOpenChange={vi.fn()} />);
+
+    expect(screen.getByRole("button", { name: /No Key/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: /全选/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^导入\(/ }));
+
+    await waitFor(() => expect(importMutateAsync).toHaveBeenCalledWith(["cc-one"]));
   });
 });

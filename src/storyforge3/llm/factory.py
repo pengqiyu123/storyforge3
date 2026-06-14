@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from storyforge3.config import StoryForge3Config
 from storyforge3.llm.llm_service import LLMService
 from storyforge3.llm.provider_config import ProviderConfigManager, build_provider_from_profile
 
 
 def create_llm_service(config: StoryForge3Config) -> LLMService:
-    manager = ProviderConfigManager(Path(config.providers_config_dir))
+    manager = ProviderConfigManager(
+        config.resolved_providers_config_dir(),
+        ccswitch_db_path=config.resolved_ccswitch_db_path(),
+    )
     provider = manager.get_active_provider()
     if provider is None:
         return _service(config, {})

@@ -18,7 +18,8 @@ TRANSITIONS = {
     ChapterStatus.AUDITED: {ChapterStatus.APPROVED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
     ChapterStatus.NEEDS_REVISION: {ChapterStatus.REVISED, ChapterStatus.NEEDS_REVIEW},
     ChapterStatus.REVISED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.APPROVED: {ChapterStatus.EXPORTED},
+    ChapterStatus.APPROVED: {ChapterStatus.TRUTH_COMMITTED},
+    ChapterStatus.TRUTH_COMMITTED: {ChapterStatus.EXPORTED},
     ChapterStatus.EXPORTED: set(),
     ChapterStatus.NEEDS_REVIEW: {ChapterStatus.PLANNED, ChapterStatus.DRAFTED, ChapterStatus.EMPTY},
 }

@@ -6,7 +6,7 @@ from collections import defaultdict
 from collections.abc import AsyncGenerator
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_serializer
 
 
 class PipelineEvent(BaseModel):
@@ -20,12 +20,27 @@ class PipelineEvent(BaseModel):
         "audit:complete",
         "llm:chunk",
         "llm:progress",
+        "run:start",
+        "run:complete",
+        "run:waiting",
+        "stage:start",
+        "stage:progress",
+        "stage:complete",
+        "stage:error",
     ]
+    run_id: str | None = None
     book_id: str
     chapter_no: int
     stage: str | None = None
     message: str | None = None
     detail: dict | None = None
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler):
+        data = handler(self)
+        if data.get("run_id") is None:
+            data.pop("run_id", None)
+        return data
 
 
 class SSEManager:
@@ -39,7 +54,7 @@ class SSEManager:
         return f"{book_id}:{chapter_no}"
 
     async def publish(self, event: PipelineEvent) -> None:
-        data = event.model_dump_json()
+        data = event.model_dump_json(exclude_none=True)
         self._recent.append(data)
         if len(self._recent) > 100:
             self._recent = self._recent[-100:]

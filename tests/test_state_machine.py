@@ -30,3 +30,19 @@ def test_approved_requires_audited_state(tmp_path) -> None:
     machine.advance("book", 1, ChapterStatus.DRAFTED)
     with pytest.raises(InvalidTransitionError):
         machine.advance("book", 1, ChapterStatus.APPROVED)
+
+
+def test_truth_committed_sits_between_approved_and_exported(tmp_path) -> None:
+    machine = ChapterStateMachine(tmp_path / "state.json")
+    machine.advance("book", 1, ChapterStatus.PLANNED)
+    machine.advance("book", 1, ChapterStatus.DRAFTED)
+    machine.advance("book", 1, ChapterStatus.AUDITED)
+    machine.advance("book", 1, ChapterStatus.APPROVED)
+
+    with pytest.raises(InvalidTransitionError):
+        machine.advance("book", 1, ChapterStatus.EXPORTED)
+
+    machine.advance("book", 1, ChapterStatus.TRUTH_COMMITTED)
+    machine.advance("book", 1, ChapterStatus.EXPORTED)
+
+    assert machine.current_status("book", 1) == ChapterStatus.EXPORTED

@@ -243,7 +243,7 @@ class ChapterService:
         return ChapterResult(
             book_id,
             chapter_no,
-            ChapterStatus.APPROVED,
+            ChapterStatus.TRUTH_COMMITTED,
             f"第{chapter_no}章",
             text,
             truth=truth,
@@ -251,6 +251,9 @@ class ChapterService:
         )
 
     async def export(self, book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
+        current = self._workflow_status(book_id, chapter_no)
+        if current not in (ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED):
+            raise ValueError("Truth 提取未完成，无法导出。请先批准并提交 truth。")
         path = await self.export_service.export_chapter(book_id, chapter_no, fmt)
         # Segmented pipeline: a successful export advances APPROVED -> EXPORTED.
         self._advance_export_state(book_id, chapter_no)
@@ -391,21 +394,29 @@ class ChapterService:
             return
 
     def _advance_approve_state(self, book_id: str, chapter_no: int) -> None:
-        # Segmented: approve (draft OK + truth extracted) advances AUDITED -> APPROVED.
+        # Segmented: approve in the current service performs human approval and
+        # truth extraction together, so the durable product state lands at
+        # TRUTH_COMMITTED after passing through APPROVED.
         machine = ChapterStateMachine(self.paths.chapter_states(book_id))
         current = machine.current_status(book_id, chapter_no)
-        if current != ChapterStatus.AUDITED:
+        if current == ChapterStatus.TRUTH_COMMITTED:
             return
         try:
-            machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
+            if current == ChapterStatus.AUDITED:
+                machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
+                current = ChapterStatus.APPROVED
+            if current == ChapterStatus.APPROVED:
+                machine.advance(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED)
         except InvalidTransitionError:
             return
 
     def _advance_export_state(self, book_id: str, chapter_no: int) -> None:
-        # Segmented: a successful export advances APPROVED -> EXPORTED.
+        # Segmented: a successful export advances TRUTH_COMMITTED -> EXPORTED.
         machine = ChapterStateMachine(self.paths.chapter_states(book_id))
         current = machine.current_status(book_id, chapter_no)
-        if current != ChapterStatus.APPROVED:
+        if current == ChapterStatus.EXPORTED:
+            return
+        if current != ChapterStatus.TRUTH_COMMITTED:
             return
         try:
             machine.advance(book_id, chapter_no, ChapterStatus.EXPORTED)

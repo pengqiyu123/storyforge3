@@ -39,9 +39,6 @@ class TruthRetriever:
         selected: list[TruthEntry] = []
         seen: set[tuple[int, str, str]] = set()
 
-        current = self.database.query_by_chapter(book_id, chapter_no)
-        self._extend_unique(selected, seen, current)
-
         recent_start = max(1, chapter_no - 5)
         recent_relevant = [
             entry
@@ -53,7 +50,7 @@ class TruthRetriever:
         historical_relevant = [
             entry
             for entry in self.database.query_relevant(book_id, prompt_context, limit=max_entries * 4, min_importance=0.8)
-            if entry.chapter_no < recent_start or entry.chapter_no > chapter_no
+            if entry.chapter_no < recent_start
         ]
         self._extend_unique(selected, seen, historical_relevant)
 
@@ -61,7 +58,7 @@ class TruthRetriever:
         high_importance = [
             entry
             for entry in self.database.query_high_importance(book_id, limit=max_entries * 4, min_importance=0.8)
-            if entry.chapter_no < recent_start or entry.chapter_no > chapter_no
+            if entry.chapter_no < chapter_no
         ]
         if not has_historical_context:
             self._extend_unique(selected, seen, high_importance)

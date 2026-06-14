@@ -195,6 +195,7 @@ class ChapterWorkflow:
             approve_started_at, approve_started = self._log_start()
             approve_before = self._current_status_value(book_id, chapter_no)
             self._advance(book_id, chapter_no, ChapterStatus.APPROVED)
+            self._advance(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED)
             self._log_run(
                 book_id,
                 chapter_no,
@@ -204,7 +205,7 @@ class ChapterWorkflow:
                 started_monotonic=approve_started,
                 llm_calls=llm_calls,
                 status_before=approve_before,
-                status_after=ChapterStatus.APPROVED.value,
+                status_after=ChapterStatus.TRUTH_COMMITTED.value,
             )
             if self.config.snapshot_enabled:
                 self._create_snapshot(book_id, chapter_no)

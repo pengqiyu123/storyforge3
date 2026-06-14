@@ -197,7 +197,14 @@ async def import_providers(
     manager: ProviderConfigManager = Depends(get_provider_manager),
 ):
     """Import selected CC-Switch providers into the project-local config."""
-    imported = manager.import_providers(request.provider_ids)
+    try:
+        imported = manager.import_providers(request.provider_ids)
+    except ValueError as exc:
+        raise ApiError(
+            status=400,
+            code="NO_IMPORTABLE_PROVIDER",
+            message=str(exc),
+        ) from exc
     active_key = _active_key(manager)
     return ok(
         ImportProvidersResponse(

@@ -102,15 +102,15 @@ def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_servi
 
     run = client.post(f"/api/books/{book_id}/chapters/3/run")
     assert run.status_code == 200
-    assert run.json()["data"]["status"] == "exported"
+    run_id = run.json()["data"]["run_id"]
+    assert run_id
 
-    status = client.get(f"/api/books/{book_id}/chapters/3/status")
-    assert status.status_code == 200
-    status_data = status.json()["data"]
-    assert status_data["status"] == "exported"
-    assert status_data["text"] == "完整管线正文"
-    assert status_data["actual_chars"] == 6
-    assert status_data["content_hash"] == _fingerprint("完整管线正文")
+    run_record = _wait_for_run_status(client, book_id, 3, {"completed"})
+    assert run_record["run_id"] == run_id
+    assert run_record["target_stages"] == ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
+    assert run_record["stage_results"]["plan"]["status"] == "completed"
+    assert run_record["stage_results"]["revise"]["status"] == "skipped"
+    assert run_record["stage_results"]["export"]["status"] == "completed"
 
 
 def test_export_preview_supports_tomato_markdown_and_qidian(client, mock_chapter_service):
@@ -227,11 +227,16 @@ def test_chapter_run_invalid_transition_returns_409_and_sse_error(client, mock_c
     book_id = "chapter-api-transition"
     mock_chapter_service.raise_run_transition = True
     resp = client.post(f"/api/books/{book_id}/chapters/4/run")
-    assert resp.status_code == 409
-    assert resp.json()["error"]["code"] == "STATE_ERROR"
+    assert resp.status_code == 200
+    run_id = resp.json()["data"]["run_id"]
 
-    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 4, 2))
-    assert [event["type"] for event in events] == ["pipeline:start", "pipeline:error"]
+    run_record = _wait_for_run_status(client, book_id, 4, {"failed"})
+    assert run_record["run_id"] == run_id
+    assert run_record["stage_results"]["plan"]["status"] == "failed"
+    assert run_record["stage_results"]["plan"]["error_code"] == "state_error"
+
+    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 4, 3))
+    assert [event["type"] for event in events] == ["run:start", "stage:start", "stage:error"]
 
 
 def test_sse_endpoint_can_connect(client):
@@ -320,3 +325,18 @@ async def _read_progress_sse_event(book_id: str, chapter_no: int) -> dict:
 
 def _fingerprint(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+
+
+def _wait_for_run_status(client, book_id: str, chapter_no: int, statuses: set[str]) -> dict:
+    import time
+
+    deadline = time.monotonic() + 1.0
+    last: dict | None = None
+    while time.monotonic() < deadline:
+        resp = client.get(f"/api/books/{book_id}/chapters/{chapter_no}/run")
+        assert resp.status_code == 200
+        last = resp.json()["data"]
+        if last["status"] in statuses:
+            return last
+        time.sleep(0.02)
+    raise AssertionError(f"run did not reach {statuses}; last={last}")

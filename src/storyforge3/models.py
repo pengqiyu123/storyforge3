@@ -18,8 +18,55 @@ class ChapterStatus(str, Enum):
     NEEDS_REVISION = "needs_revision"
     REVISED = "revised"
     APPROVED = "approved"
+    TRUTH_COMMITTED = "truth_committed"
     EXPORTED = "exported"
     NEEDS_REVIEW = "needs_review"
+
+
+class RunStatus(str, Enum):
+    """Lifecycle state for one pipeline run instance."""
+
+    PENDING = "pending"
+    RUNNING = "running"
+    WAITING_FOR_HUMAN = "waiting_for_human"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    RESUMABLE = "resumable"
+    CANCELLED = "cancelled"
+
+
+@dataclass(frozen=True)
+class StageResult:
+    """Persisted result for one stage within a pipeline run."""
+
+    stage: str
+    status: str
+    started_at: str
+    finished_at: str | None = None
+    duration_ms: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+    summary: dict | None = None
+
+
+@dataclass(frozen=True)
+class PipelineRunRecord:
+    """Queryable current-state record for one pipeline run."""
+
+    run_id: str
+    book_id: str
+    chapter_no: int
+    mode: str
+    target_stages: list[str]
+    status: RunStatus
+    current_stage: str | None
+    started_at: str
+    updated_at: str
+    stage_results: dict[str, StageResult] = field(default_factory=dict)
+    llm_calls: list[dict] = field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    resume_from: str | None = None
 
 
 class RuleSeverity(str, Enum):

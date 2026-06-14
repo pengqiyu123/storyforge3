@@ -1,13 +1,27 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+DEFAULT_PROVIDERS_CONFIG_DIR = ".storyforge3"
+DEFAULT_CCSWITCH_DB_PATH = Path.home() / ".cc-switch" / "cc-switch.db"
+
+
+def _storyforge3_project_root() -> Path:
+    for parent in Path(__file__).resolve().parents:
+        if (parent / "pyproject.toml").exists():
+            return parent
+    return Path(__file__).resolve().parents[2]
 
 
 class StoryForge3Config(BaseSettings):
     """Runtime settings loaded from environment and .env only."""
 
     # ── Provider config source ─────────────────────────────
-    providers_config_dir: str = ".storyforge3"
+    providers_config_dir: str = DEFAULT_PROVIDERS_CONFIG_DIR
+    ccswitch_db_path: str = str(DEFAULT_CCSWITCH_DB_PATH)
     llm_timeout_seconds: int = 120
     llm_draft_timeout_seconds: int = 300
     llm_truth_timeout_seconds: int = 600
@@ -33,6 +47,20 @@ class StoryForge3Config(BaseSettings):
     snapshot_max_count: int = 5
 
     model_config = SettingsConfigDict(env_prefix="", env_file=".env", extra="ignore")
+
+    def resolved_providers_config_dir(self) -> Path:
+        path = Path(self.providers_config_dir).expanduser()
+        if path.is_absolute():
+            return path
+        if self._uses_default_providers_config_dir(path):
+            return _storyforge3_project_root() / DEFAULT_PROVIDERS_CONFIG_DIR
+        return path.resolve()
+
+    def resolved_ccswitch_db_path(self) -> Path:
+        return Path(self.ccswitch_db_path).expanduser().resolve()
+
+    def _uses_default_providers_config_dir(self, path: Path) -> bool:
+        return "providers_config_dir" not in self.model_fields_set and path == Path(DEFAULT_PROVIDERS_CONFIG_DIR)
 
     def model_for_task(self, task_name: str) -> str | None:
         """Resolve task override; None means use CCSwitch current provider model."""

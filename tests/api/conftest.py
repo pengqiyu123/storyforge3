@@ -126,8 +126,11 @@ class FakeChapterService:
         self.last_export_format: str | None = None
         self.last_update_text: tuple[str, int, str, str | None] | None = None
         self.status_result: ChapterResult | None = None
+        self.last_run_id: str | None = None
 
     async def plan(self, _book_id: str, chapter_no: int) -> ChapterIntent:
+        if self.raise_run_transition:
+            raise InvalidTransitionError("invalid transition drafted -> planned")
         return ChapterIntent(
             chapter_no=chapter_no,
             goal="推进主线",
@@ -260,6 +263,9 @@ class FakeChapterService:
         result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "完整管线正文")
         self.status_result = result
         return result
+
+    async def run_full_pipeline_async(self, book_id: str, chapter_no: int, *, human_confirm=None) -> ChapterResult:
+        return await self.run_full_pipeline(book_id, chapter_no, human_confirm=human_confirm)
 
 
 class FakeTruthStore:

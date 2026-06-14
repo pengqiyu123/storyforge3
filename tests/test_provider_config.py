@@ -74,11 +74,21 @@ def test_import_providers_merges_and_sets_first_keyed_provider_active(tmp_path: 
 
     imported = manager.import_providers(["cc-empty", "cc-keyed"])
 
-    assert [item["provider_key"] for item in imported] == ["cc-empty", "cc-keyed"]
+    assert [item["provider_key"] for item in imported] == ["cc-keyed"]
     assert manager.get_active()["provider_key"] == "cc-keyed"  # type: ignore[index]
     saved = json.loads((tmp_path / "providers.json").read_text(encoding="utf-8"))
-    assert saved["providers"][0]["enabled"] is False
-    assert saved["providers"][1]["enabled"] is True
+    assert [item["provider_key"] for item in saved["providers"]] == ["cc-keyed"]
+    assert saved["providers"][0]["enabled"] is True
+
+
+def test_import_providers_rejects_no_key_selection_without_persisting(tmp_path: Path) -> None:
+    manager = ProviderConfigManager(tmp_path, reader=FakeReader([provider("cc-empty", "")]))
+
+    with pytest.raises(ValueError, match="No importable provider"):
+        manager.import_providers(["cc-empty"])
+
+    assert manager.list_imported(include_secrets=True) == []
+    assert manager.get_active() is None
 
 
 def test_list_available_masks_api_keys_without_persisting_masked_values(tmp_path: Path) -> None:
