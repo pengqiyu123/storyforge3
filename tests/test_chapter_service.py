@@ -294,6 +294,9 @@ def test_chapter_service_draft_reuses_persisted_plan(config: StoryForge3Config, 
 
     assert [call["task_name"] for call in llm.calls] == ["chapter_draft"]
     assert llm.calls[0]["payload"]["intent"] == "进入检测中心"
+    # A successful draft advances the chapter status PLANNED -> DRAFTED so the UI
+    # (and audit/revise gating) recognizes a draft artifact exists.
+    assert ChapterStateMachine(service.paths.chapter_states("lurenjia")).current_status("lurenjia", 8) == ChapterStatus.DRAFTED
 
 
 def test_chapter_service_plan_updates_current_chapter(config: StoryForge3Config, book_workspace: Path) -> None:

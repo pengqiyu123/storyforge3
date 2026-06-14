@@ -9,12 +9,15 @@ from storyforge3.api.routes.events import sse_subscribe
 from storyforge3.models import ChapterResult, ChapterStatus
 
 
-def test_chapter_status_not_found(client):
+def test_chapter_status_empty_when_not_started(client):
+    # Non-existent chapters return 200 + empty status (not 404) so the chapter list
+    # does not log a console error per not-yet-started chapter.
     resp = client.get("/api/books/nonexistent/chapters/1/status")
-    assert resp.status_code == 404
+    assert resp.status_code == 200
     body = resp.json()
-    assert body["ok"] is False
-    assert body["error"]["code"] == "CHAPTER_NOT_FOUND"
+    assert body["ok"] is True
+    assert body["data"]["status"] == "empty"
+    assert body["data"]["text"] == ""
 
 
 def test_chapter_plan_and_draft_emit_sse_events(client, mock_chapter_service):
@@ -32,9 +35,11 @@ def test_chapter_plan_and_draft_emit_sse_events(client, mock_chapter_service):
     assert "林默停在副楼门口" in draft.json()["data"]["text"]
     assert mock_chapter_service.last_draft_intent.goal == "进入副楼"
 
-    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 3))
-    assert [event["type"] for event in events] == ["pipeline:start", "llm:progress", "pipeline:complete"]
+    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 4))
+    assert [event["type"] for event in events] == ["pipeline:start", "llm:progress", "llm:chunk", "pipeline:complete"]
     assert events[1]["detail"] == {"completed": 1, "total": 2}
+    assert events[2]["type"] == "llm:chunk"
+    assert events[2]["detail"]["text"] == "林默停在副楼门口。"
 
 
 def test_get_chapter_plan_returns_intent(client):
@@ -306,8 +311,8 @@ async def _read_progress_sse_event(book_id: str, chapter_no: int) -> dict:
     response = await sse_subscribe(book_id=book_id, chapter_no=chapter_no)
     while True:
         event = await asyncio.wait_for(anext(response.body_iterator), timeout=0.5)
-        if event.get("event") != "pipeline":
-            raise AssertionError(f"unexpected SSE event envelope: {event!r}")
+        # Events are unnamed (default) so the browser's EventSource.onmessage fires;
+        # no "event" key is present on the wire-format dict.
         payload = json.loads(event["data"])
         if payload.get("type") == "llm:progress":
             return payload

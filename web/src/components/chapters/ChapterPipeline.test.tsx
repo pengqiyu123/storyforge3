@@ -1,66 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChangeEvent } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChapterPipeline, paragraphIndicesToRanges } from "./ChapterPipeline";
+import type { ChapterIntent } from "@/api/chapters";
 
-const auditMutateAsync = vi.fn();
-const reviseMutateAsync = vi.fn();
-const pendingState = vi.hoisted(() => ({
-  audit: false,
-  revise: false,
-  runFull: false
-}));
-const toastMocks = vi.hoisted(() => ({
-  info: vi.fn(),
-  error: vi.fn(),
-  success: vi.fn()
-}));
-
-vi.mock("sonner", () => ({
-  toast: {
-    info: toastMocks.info,
-    success: toastMocks.success,
-    error: toastMocks.error
-  }
-}));
-
-vi.mock("@/components/editor/ChapterEditor", () => ({
-  ChapterEditor: ({
-    value,
-    readOnly,
-    placeholder,
-    className,
-    onChange,
-    highlights,
-    scrollToOffset
-  }: {
-    value: string;
-    readOnly?: boolean;
-    placeholder?: string;
-    className?: string;
-    onChange?: (value: string) => void;
-    highlights?: unknown[];
-    scrollToOffset?: number;
-  }) => (
-    <textarea
-      aria-label="章节文本预览"
-      data-readonly={String(Boolean(readOnly))}
-      data-highlights={JSON.stringify(highlights ?? [])}
-      data-scroll-to-offset={String(scrollToOffset ?? "")}
-      readOnly={readOnly}
-      className={className}
-      placeholder={placeholder}
-      value={value}
-      onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value)}
-    />
-  )
-}));
-
-vi.mock("@/components/export/ExportPreviewDialog", () => ({
-  ExportPreviewDialog: ({ open }: { open: boolean }) => (open ? <div>导出预览</div> : null)
-}));
-
+const planState = vi.hoisted(() => ({ data: null as ChapterIntent | null }));
+const updateMutateAsync = vi.fn();
 const pipelineEventState = vi.hoisted(() => ({
   current: undefined as
     | ((event: {
@@ -74,279 +20,128 @@ const pipelineEventState = vi.hoisted(() => ({
     | undefined
 }));
 
+vi.mock("@/hooks/useChapters", () => ({
+  useChapterPlanState: () => planState,
+  useChapterUpdateText: () => ({ mutateAsync: updateMutateAsync, isPending: false })
+}));
+
 vi.mock("@/hooks/usePipelineEvents", () => ({
   usePipelineEvents: (_bookId?: string, _chapterNo?: number, onEvent?: typeof pipelineEventState.current) => {
     pipelineEventState.current = onEvent;
   }
 }));
 
-vi.mock("@/hooks/useChapters", async () => {
-  const actual = await vi.importActual<typeof import("@/hooks/useChapters")>("@/hooks/useChapters");
-  return {
-    ...actual,
-    useChapterAudit: () => ({ mutateAsync: auditMutateAsync, isPending: pendingState.audit }),
-    useChapterRevise: () => ({ mutateAsync: reviseMutateAsync, isPending: pendingState.revise }),
-    useRunFullPipeline: () => ({ mutateAsync: vi.fn(), isPending: pendingState.runFull })
-  };
-});
+vi.mock("@/components/editor/ChapterEditor", () => ({
+  ChapterEditor: ({
+    value,
+    readOnly,
+    placeholder,
+    className,
+    onChange
+  }: {
+    value: string;
+    readOnly?: boolean;
+    placeholder?: string;
+    className?: string;
+    onChange?: (value: string) => void;
+  }) => (
+    <textarea
+      aria-label="章节正文"
+      data-readonly={String(Boolean(readOnly))}
+      className={className}
+      placeholder={placeholder}
+      value={value}
+      readOnly={readOnly}
+      onChange={(event: ChangeEvent<HTMLTextAreaElement>) => onChange?.(event.target.value)}
+    />
+  )
+}));
 
-describe("ChapterPipeline", () => {
+vi.mock("@/components/export/ExportPreviewDialog", () => ({
+  ExportPreviewDialog: ({ open }: { open: boolean }) => (open ? <div>导出预览</div> : null)
+}));
+
+function renderPipeline(status: string, text = "") {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ChapterPipeline
+        bookId="lurenjia"
+        chapterNo={1}
+        result={{ book_id: "lurenjia", chapter_no: 1, status, title: "第1章", text, actual_chars: text.length }}
+      />
+    </QueryClientProvider>
+  );
+}
+
+describe("ChapterPipeline (view-only Run Viewer)", () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
-    pendingState.audit = false;
-    pendingState.revise = false;
-    pendingState.runFull = false;
+    planState.data = null;
+    updateMutateAsync.mockReset();
     pipelineEventState.current = undefined;
-    auditMutateAsync.mockReset();
-    reviseMutateAsync.mockReset();
-    toastMocks.info.mockReset();
-    toastMocks.error.mockReset();
-    toastMocks.success.mockReset();
   });
 
-  it("runs plan action and displays text preview", async () => {
-    const onPlan = vi.fn().mockResolvedValue({
+  it("shows the draft text on the default draft tab", () => {
+    renderPipeline("drafted", "林默推开门。");
+    expect(screen.getByLabelText("章节正文")).toHaveValue("林默推开门。");
+  });
+
+  it("switches to the plan view when the 规划 tab is clicked", async () => {
+    planState.data = {
       chapter_no: 1,
       goal: "进入副楼",
       outline_node: "夜灯仓纠纷升级",
-      arc_context: "沈听澜开始主动接话",
+      arc_context: "",
       must_keep: ["保留巡夜队压力"],
-      must_avoid: ["直接解释世界观"],
-      style_emphasis: ["短句推进"]
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      must_avoid: [],
+      style_emphasis: []
+    } as ChapterIntent;
+    renderPipeline("planned");
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。" }}
-          onPlan={onPlan}
-        />
-      </QueryClientProvider>
-    );
+    fireEvent.click(screen.getByRole("tab", { name: /规划/ }));
 
-    expect(screen.getByLabelText("章节文本预览")).toHaveTextContent("林默推开门。");
-    expect(screen.getByLabelText("章节文本预览")).toHaveAttribute("data-readonly", "true");
-    expect(screen.getByText("5 字")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /规划/ }));
-
-    await waitFor(() => expect(onPlan).toHaveBeenCalledWith(1));
     expect(screen.getByTestId("chapter-plan-panel")).toBeInTheDocument();
     expect(screen.getByText("进入副楼")).toBeInTheDocument();
-    expect(screen.getByText("夜灯仓纠纷升级")).toBeInTheDocument();
   });
 
-  it("shows the latest audit result after running audit", async () => {
-    auditMutateAsync.mockResolvedValueOnce({
-      chapter_no: 1,
-      passed: false,
-      blocking_issues: ["golden_three_hook"],
-      warnings: [],
-      info: [],
-      rule_results: [
-        {
-          rule_id: "golden_three_hook",
-          passed: false,
-          severity: "BLOCKING",
-          category: "STRUCTURE",
-          message: "前三段缺少有效钩子",
-          detail: { paragraph_indices: [1], snippet: "第二段太平。" }
-        }
-      ]
+  it("shows pipeline progress when an agent-driven run starts (no button click)", () => {
+    renderPipeline("planned");
+    act(() => {
+      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "draft", message: "开始起草" });
     });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "audited", title: "第1章", text: "第一段。\n\n第二段。" }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /审计/ }));
-
-    await waitFor(() => expect(screen.getByText("审计未通过")).toBeInTheDocument());
-    expect(screen.getByText("golden_three_hook")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /定位 golden_three_hook/ }));
-    await waitFor(() =>
-      expect(screen.getByLabelText("章节文本预览")).toHaveAttribute("data-highlights", JSON.stringify([{ from: 6, to: 10, severity: "BLOCKING" }]))
-    );
-    expect(screen.getByLabelText("章节文本预览")).toHaveAttribute("data-scroll-to-offset", "6");
+    expect(screen.getByTestId("pipeline-progress")).toBeInTheDocument();
   });
 
-  it("shows revision diff after revise and clears it on a later audit", async () => {
-    reviseMutateAsync.mockResolvedValueOnce({
-      book_id: "lurenjia",
-      chapter_no: 1,
-      status: "revised",
-      title: "第1章",
-      text: "修订后正文。",
-      revision_diff: {
-        unit: "paragraph",
-        summary: {
-          changed_blocks: 1,
-          added_blocks: 0,
-          removed_blocks: 0,
-          before_chars: 6,
-          after_chars: 6
-        },
-        blocks: [{ kind: "replace", before_text: "修订前正文。", after_text: "修订后正文。" }]
-      }
+  it("streams draft text from llm:chunk events into the draft view", () => {
+    renderPipeline("planned");
+    act(() => {
+      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "draft", message: "开始起草" });
+      actPipelineEvent({ type: "llm:chunk", book_id: "lurenjia", chapter_no: 1, stage: "draft", detail: { text: "第一段。" } });
+      actPipelineEvent({ type: "llm:chunk", book_id: "lurenjia", chapter_no: 1, stage: "draft", detail: { text: "第二段。" } });
     });
-    auditMutateAsync.mockResolvedValueOnce({
-      chapter_no: 1,
-      passed: true,
-      blocking_issues: [],
-      warnings: [],
-      info: [],
-      rule_results: []
-    });
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "audited", title: "第1章", text: "修订前正文。" }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /修订/ }));
-
-    await waitFor(() => expect(screen.getByText("修订变更")).toBeInTheDocument());
-    const diffPanel = screen.getByTestId("revision-diff-panel");
-    expect(within(diffPanel).getByText("修订前正文。")).toBeInTheDocument();
-    expect(within(diffPanel).getByText("修订后正文。")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /审计/ }));
-
-    await waitFor(() => expect(screen.queryByText("修订变更")).not.toBeInTheDocument());
+    expect(screen.getByLabelText("章节正文")).toHaveValue("第一段。\n\n第二段。");
+    expect(screen.getByText("正在生成（流式）…")).toBeInTheDocument();
   });
 
-  it("edits, saves, and sends the current content hash", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          ok: true,
-          data: {
-            book_id: "lurenjia",
-            chapter_no: 1,
-            status: "needs_review",
-            title: "第1章",
-            text: "林默推开门，补上一句。",
-            content_hash: "newhash1",
-            actual_chars: 11,
-            error: null
-          },
-          error: null
-        })
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  it("edits and saves the draft text", async () => {
+    updateMutateAsync.mockResolvedValue({ ok: true });
+    renderPipeline("drafted", "林默推开门。");
 
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{
-            book_id: "lurenjia",
-            chapter_no: 1,
-            status: "drafted",
-            title: "第1章",
-            text: "林默推开门。",
-            content_hash: "oldhash1",
-            actual_chars: 5
-          }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-    const editor = screen.getByLabelText("章节文本预览");
-    expect(editor).toHaveAttribute("data-readonly", "false");
-
-    fireEvent.change(editor, { target: { value: "林默推开门，补上一句。" } });
-
-    expect(screen.getByText("未保存的修改")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /编辑/ }));
+    fireEvent.change(screen.getByLabelText("章节正文"), { target: { value: "林默推开门，补一句。" } });
     fireEvent.click(screen.getByRole("button", { name: /保存/ }));
 
     await waitFor(() =>
-      expect(fetchMock).toHaveBeenCalledWith(
-        "/api/books/lurenjia/chapters/1/text",
-        expect.objectContaining({
-          method: "PUT",
-          body: JSON.stringify({
-            text: "林默推开门，补上一句。",
-            expected_hash: "oldhash1"
-          })
-        })
-      )
+      expect(updateMutateAsync).toHaveBeenCalledWith(expect.objectContaining({ chapterNo: 1, text: "林默推开门，补一句。" }))
     );
   });
 
-  it("discards unsaved edits", () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。", content_hash: "oldhash1" }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-    fireEvent.change(screen.getByLabelText("章节文本预览"), { target: { value: "临时修改。" } });
-
-    fireEvent.click(screen.getByRole("button", { name: "放弃修改" }));
-
-    expect(screen.getByLabelText("章节文本预览")).toHaveValue("林默推开门。");
-    expect(screen.getByLabelText("章节文本预览")).toHaveAttribute("data-readonly", "true");
-  });
-
-  it("saves with ctrl+s and keeps edit mode on conflicts", async () => {
-    const fetchMock = vi.fn(async () =>
-      new Response(
-        JSON.stringify({
-          ok: false,
-          data: null,
-          error: { code: "CONTENT_CONFLICT", message: "章节内容已被修改，请刷新后重试" }
-        }),
-        { status: 409 }
-      )
-    );
-    vi.stubGlobal("fetch", fetchMock);
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。", content_hash: "oldhash1" }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "编辑" }));
-    fireEvent.change(screen.getByLabelText("章节文本预览"), { target: { value: "林默推开门，补上一句。" } });
-    fireEvent.keyDown(window, { key: "s", ctrlKey: true });
-
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(toastMocks.error).toHaveBeenCalledWith("内容已被修改，请刷新"));
-    expect(screen.getByLabelText("章节文本预览")).toHaveAttribute("data-readonly", "false");
+  it("never disables a stage tab (view tabs are always clickable)", () => {
+    renderPipeline("exported", "完成。");
+    // Every stage is viewable regardless of completion — none should be disabled.
+    for (const label of ["规划", "起草", "审计", "修订", "批准", "导出"]) {
+      expect(screen.getByRole("tab", { name: new RegExp(label) })).toBeEnabled();
+    }
   });
 
   it("converts paragraph indices to character ranges", () => {
@@ -354,80 +149,6 @@ describe("ChapterPipeline", () => {
       { from: 6, to: 10 },
       { from: 12, to: 16 }
     ]);
-  });
-
-  it("opens export preview from the preview button", async () => {
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。", content_hash: "oldhash1" }}
-        />
-      </QueryClientProvider>
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "预览" }));
-
-    await waitFor(() => expect(screen.getByText("导出预览")).toBeInTheDocument());
-  });
-
-  it("shows pipeline progress when busy after pipeline start event", () => {
-    pendingState.audit = true;
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const onPlan = vi.fn(() => new Promise(() => undefined));
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。" }}
-          onPlan={onPlan}
-        />
-      </QueryClientProvider>
-    );
-
-    act(() => {
-      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "起草", message: "开始起草" });
-    });
-
-    expect(screen.getByTestId("pipeline-progress")).toBeInTheDocument();
-    expect(screen.getByText("正在起草...")).toBeInTheDocument();
-  });
-
-  it("updates chunk progress from sse events", () => {
-    pendingState.audit = true;
-    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    const onPlan = vi.fn(() => new Promise(() => undefined));
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <ChapterPipeline
-          bookId="lurenjia"
-          chapterNo={1}
-          result={{ book_id: "lurenjia", chapter_no: 1, status: "drafted", title: "第1章", text: "林默推开门。" }}
-          onPlan={onPlan}
-        />
-      </QueryClientProvider>
-    );
-
-    act(() => {
-      actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "起草", message: "开始起草" });
-      actPipelineEvent({
-        type: "llm:progress",
-        book_id: "lurenjia",
-        chapter_no: 1,
-        stage: "draft",
-        detail: { completed: 3, total: 5 }
-      });
-    });
-
-    expect(screen.getByText("3/5 段")).toBeInTheDocument();
-    expect(screen.getByText("正在生成第 3/5 段")).toBeInTheDocument();
-    expect(screen.getByTestId("pipeline-progress-bar")).toHaveStyle({ width: "60%" });
   });
 });
 

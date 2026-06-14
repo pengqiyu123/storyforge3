@@ -18,11 +18,15 @@ class ChunkedGenerator:
         chunk_target_chars: int = 500,
         max_chunks: int = 6,
         on_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        on_chunk: Callable[[str, int, int], Awaitable[None]] | None = None,
     ) -> None:
         self.service = service
         self.chunk_target_chars = chunk_target_chars
         self.max_chunks = max_chunks
         self.on_progress = on_progress
+        # on_chunk(text, completed, total) streams each finished chunk's prose so the
+        # frontend can render the draft live (llm:chunk SSE events).
+        self.on_chunk = on_chunk
 
     async def generate(self, task_name: str, system_prompt: str, outline: str, context: dict) -> str:
         target_chars = _positive_int(context.get("target_chars"), self.chunk_target_chars)
@@ -71,6 +75,8 @@ class ChunkedGenerator:
                 chunks.append(chunk.strip())
                 if self.on_progress:
                     await self.on_progress(len(chunks), len(scenes))
+                if self.on_chunk:
+                    await self.on_chunk(chunk.strip(), len(chunks), len(scenes))
         return "\n\n".join(chunks)
 
 

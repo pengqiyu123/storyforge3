@@ -41,10 +41,13 @@ async def test_normalize_validates_input(async_client):
 
 @pytest.mark.asyncio
 async def test_get_status_not_found(async_client):
+    # Non-existent chapters return 200 + empty status (not 404) so the chapter list
+    # does not log a console error per not-yet-started chapter.
     response = await async_client.get("/api/books/chapter-api/chapters/1/status")
 
-    assert response.status_code == 404
-    assert response.json()["error"]["code"] == "CHAPTER_NOT_FOUND"
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "empty"
+    assert response.json()["data"]["text"] == ""
 
 
 @pytest.mark.asyncio

@@ -93,6 +93,7 @@ class ChapterService:
         intent: ChapterIntent | None = None,
         *,
         on_chunk_progress: Callable[[int, int], Awaitable[None]] | None = None,
+        on_chunk: Callable[[str, int, int], Awaitable[None]] | None = None,
     ) -> str:
         intent = intent or self._load_plan(book_id, chapter_no) or await self.plan(book_id, chapter_no)
         prompt = CHAPTER_DRAFT_PROMPT
@@ -118,7 +119,7 @@ class ChapterService:
         payload.update(self._fanfic_draft_context(book_id))
         target_chars = self._load_target_chapter_chars(book_id)
         if _should_chunk_draft(target_chars):
-            text = await ChunkedGenerator(self.llm, on_progress=on_chunk_progress).generate(
+            text = await ChunkedGenerator(self.llm, on_progress=on_chunk_progress, on_chunk=on_chunk).generate(
                 "chapter_draft",
                 prompt,
                 intent.outline_node or intent.goal,
@@ -128,6 +129,10 @@ class ChapterService:
             text = await self.llm.generate_text("chapter_draft", prompt, payload, model=model)
         text = await self._normalize_draft_if_needed(book_id, text)
         self.storage.write_text(self.paths.chapter_file(book_id, chapter_no), text)
+        # Advance chapter status PLANNED -> DRAFTED on a successful draft so the UI
+        # (and downstream audit/revise gating) reflects that a draft artifact exists.
+        # Idempotent: only advances from PLANNED, never regresses a later status.
+        self._advance_draft_state(book_id, chapter_no)
         self._bump_current_chapter(book_id, chapter_no)
         return text
 
@@ -336,6 +341,16 @@ class ChapterService:
             return
         try:
             machine.advance(book_id, chapter_no, ChapterStatus.PLANNED)
+        except InvalidTransitionError:
+            return
+
+    def _advance_draft_state(self, book_id: str, chapter_no: int) -> None:
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current != ChapterStatus.PLANNED:
+            return
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.DRAFTED)
         except InvalidTransitionError:
             return
 

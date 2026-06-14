@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from storyforge3.api.deps import get_chapter_service
 from storyforge3.api.errors import chapter_empty, chapter_not_found, content_conflict, internal_error, invalid_parameter, state_error
 from storyforge3.api.response import ok
-from storyforge3.api.sse import PipelineEvent, make_progress_event, sse_manager
+from storyforge3.api.sse import PipelineEvent, make_chunk_event, make_progress_event, sse_manager
 from storyforge3.audit.chinese_text import count_chinese_chars
 from storyforge3.audit.llm_auditor import LLMAuditIssue, LLMAuditResult
 from storyforge3.export.formatter import PlatformFormatter
@@ -353,6 +353,9 @@ async def draft_chapter(
             on_chunk_progress=lambda completed, total: sse_manager.publish(
                 make_progress_event(book_id, chapter_no, completed, total)
             ),
+            on_chunk=lambda chunk_text, completed, total: sse_manager.publish(
+                make_chunk_event(book_id, chapter_no, chunk_text)
+            ),
         )
         await _publish_complete(book_id, chapter_no, "draft", {"chars": len(text)})
         return ok(ChapterTextResponse(text=text))
@@ -521,7 +524,22 @@ async def get_chapter_status(
 ):
     result = await service.get_status(book_id, chapter_no)
     if result is None:
-        raise chapter_not_found(book_id, chapter_no)
+        # Empty chapter slot (not yet planned/drafted). Return 200 + empty status
+        # instead of 404 so the chapter list does not log a console error per
+        # not-yet-started chapter. (get_status already distinguishes planned-only.)
+        return ok(
+            ChapterStatusResponse(
+                book_id=book_id,
+                chapter_no=chapter_no,
+                status="empty",
+                title=f"第{chapter_no}章",
+                text="",
+                content_hash=None,
+                actual_chars=0,
+                revision_diff=None,
+                error=None,
+            )
+        )
     return ok(_result_to_response(result))
 
 

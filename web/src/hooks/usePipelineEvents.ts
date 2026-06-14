@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
 import { resolveApiUrl } from "@/api/client";
@@ -22,6 +22,11 @@ export interface PipelineEvent {
 
 export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?: (event: PipelineEvent) => void) {
   const queryClient = useQueryClient();
+  // Keep the latest callback in a ref so the EventSource subscription is NOT torn down
+  // and rebuilt on every render (the inline onEvent closure changes each render, which
+  // previously caused SSE events — pipeline:start / llm:progress — to be dropped).
+  const onEventRef = useRef(onEvent);
+  onEventRef.current = onEvent;
 
   useEffect(() => {
     if (!bookId || !chapterNo || typeof EventSource === "undefined") {
@@ -31,7 +36,7 @@ export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?:
     const source = new EventSource(resolveApiUrl(`/api/events?${params.toString()}`));
     source.onmessage = (message) => {
       const event = JSON.parse(message.data) as PipelineEvent;
-      onEvent?.(event);
+      onEventRef.current?.(event);
       queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
       if (event.type === "pipeline:error") {
         toast.error(classifyPipelineErrorMessage(event));
@@ -45,7 +50,7 @@ export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?:
       source.close();
     };
     return () => source.close();
-  }, [bookId, chapterNo, onEvent, queryClient]);
+  }, [bookId, chapterNo, queryClient]);
 }
 
 function classifyPipelineErrorMessage(event: PipelineEvent): string {

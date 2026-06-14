@@ -149,10 +149,12 @@ class FakeChapterService:
             style_emphasis=("短句推进",),
         )
 
-    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None, *, on_chunk_progress=None) -> str:
+    async def draft(self, book_id: str, chapter_no: int, intent: ChapterIntent | None = None, *, on_chunk_progress=None, on_chunk=None) -> str:
         self.last_draft_intent = intent
         if on_chunk_progress is not None:
             await on_chunk_progress(1, 2)
+        if on_chunk is not None:
+            await on_chunk("林默停在副楼门口。", 1, 2)
         text = "林默停在副楼门口。\n\n提示音从走廊深处响了一下。"
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.DRAFTED, f"第{chapter_no}章", text)
         return text
