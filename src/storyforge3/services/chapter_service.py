@@ -140,7 +140,11 @@ class ChapterService:
         text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
         if text is None:
             raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
-        return self.audit_runner.run_audit(chapter_no, text)
+        audit = self.audit_runner.run_audit(chapter_no, text)
+        # Segmented pipeline: auditing a draft/revised chapter advances to AUDITED
+        # so the agent can drive stage-by-stage (draft -> audit -> revise -> approve).
+        self._advance_audit_state(book_id, chapter_no)
+        return audit
 
     async def run_llm_audit(self, book_id: str, chapter_no: int, text: str) -> LLMAuditResult:
         auditor = LLMAuditor(self.llm, self.prompt_registry, self.config)
@@ -225,11 +229,32 @@ class ChapterService:
         )
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
-        result = await self.run_full_pipeline(book_id, chapter_no, human_confirm=lambda _: True)
-        return result
+        # Segmented pipeline: approve = human-OK the current draft + extract truth,
+        # then advance AUDITED -> APPROVED. Does NOT re-run plan/draft/audit (that's
+        # the full pipeline's job via run()). This lets the agent resume a chapter
+        # from its current draft instead of re-running everything.
+        text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
+        if text is None:
+            raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
+        previous_truth = self.truth_store.load(book_id, chapter_no - 1) if chapter_no > 1 else None
+        truth = await self.truth_extractor.extract(chapter_no, text, previous_truth)
+        self.truth_store.save(book_id, truth)
+        self._advance_approve_state(book_id, chapter_no)
+        return ChapterResult(
+            book_id,
+            chapter_no,
+            ChapterStatus.APPROVED,
+            f"第{chapter_no}章",
+            text,
+            truth=truth,
+            error="approved+truth_extracted",
+        )
 
     async def export(self, book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
-        return await self.export_service.export_chapter(book_id, chapter_no, fmt)
+        path = await self.export_service.export_chapter(book_id, chapter_no, fmt)
+        # Segmented pipeline: a successful export advances APPROVED -> EXPORTED.
+        self._advance_export_state(book_id, chapter_no)
+        return path
 
     async def get_status(self, book_id: str, chapter_no: int) -> ChapterResult | None:
         text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
@@ -351,6 +376,39 @@ class ChapterService:
             return
         try:
             machine.advance(book_id, chapter_no, ChapterStatus.DRAFTED)
+        except InvalidTransitionError:
+            return
+
+    def _advance_audit_state(self, book_id: str, chapter_no: int) -> None:
+        # Segmented: auditing a fresh draft or a revised chapter lands at AUDITED.
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current not in (ChapterStatus.DRAFTED, ChapterStatus.REVISED):
+            return
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.AUDITED)
+        except InvalidTransitionError:
+            return
+
+    def _advance_approve_state(self, book_id: str, chapter_no: int) -> None:
+        # Segmented: approve (draft OK + truth extracted) advances AUDITED -> APPROVED.
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current != ChapterStatus.AUDITED:
+            return
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
+        except InvalidTransitionError:
+            return
+
+    def _advance_export_state(self, book_id: str, chapter_no: int) -> None:
+        # Segmented: a successful export advances APPROVED -> EXPORTED.
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current != ChapterStatus.APPROVED:
+            return
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.EXPORTED)
         except InvalidTransitionError:
             return
 
