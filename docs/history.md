@@ -1,7 +1,26 @@
 # StoryForge3 阶段历史
 
-> 更新时间：2026-06-12  
+> 更新时间：2026-06-14  
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
+
+## P0.5：解除 dogfood 阻塞 + agent-mode-only 范式落地（2026-06-13/14）
+
+状态：完成。后端 522 passed / ruff clean；前端 82 passed / build clean。
+
+关键里程碑：
+
+- **SSE named-event 根因修复**：后端发 `event: pipeline`（具名），浏览器 `onmessage` 只收无名事件 → SSE 事件一个都到不了前端。改 `events.py` 发无名事件。（潜伏 bug；管理器层测试读 `sse_manager` 未抓到。）
+- **产品方向锁定**：`CLAUDE.md` 顶部新增 "Product Direction — agent-mode ONLY" —— 只实现 agent 模式，手动 UI 运行按钮 deferred；章节页 = 纯查看 Run Viewer。
+- **章节页改造为纯 Run Viewer**：六个步骤从"点击运行"→"点击查看 tab"（勾=已产出）；移除所有 run 按钮；保留手动正文编辑 + SSE 实时进度/流式。
+- **draft 状态推进修复**：`ChapterService.draft()` 此前只写正文不推进状态机（卡 PLANNED）→ 补 `_advance_draft_state`（PLANNED→DRAFTED，幂等）。
+- **分段流式正文**：`ChunkedGenerator.on_chunk` → draft 发布 `llm:chunk` → 前端流式累加。
+- **status 200+empty**：未开始章节不再 404 刷屏（`get_status` 返 empty 而非 raise）。
+- **CCSwitch 供应商面板**：`/settings` → 导入/切换/验证/移除（6 端点，脱敏 api_key）；切火山引擎 CodingPlan（ark-code-latest）作 active。
+- **火山引擎路由 fix**：`COMPAT_SUFFIXES` 错剥 `/api/coding` → 火山端点 404；移除该条 + 对应测试。
+- **CI 三连修复**：`.gitignore books/`→`/books/` 锚根 + `python -m pytest` + 补回被错误忽略的 `web/src/components/books/`。
+- **dogfood 验证**：《别打了》ch2 起草成功（drafted，4237 字，翻译机制驱动剧情、贴十二文明设定）；火山 provider 实测 truth_extract 402.5s（600s 独立超时已落 commit 96d2975）。
+
+相关：架构 spec `docs/architecture-run-state-and-viewer.md`；豆包评估 `docs/proposals/豆包评估-p0.5-p1.md`；重设计提案 `docs/proposals/小说创作全流程重设计方案.md`。
 
 ## Phase 10A-2：后端 LLM 流式输出 + SSE 进度
 

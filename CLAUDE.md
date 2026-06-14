@@ -4,6 +4,21 @@
 
 StoryForge3 is a Chinese web-novel full-workflow creation engine. It supports creating a book from a blank page, building world and character context, planning volumes, and producing single or multi-chapter runs through audit, revision, truth extraction, and export.
 
+## Product Direction — agent-mode ONLY (manual mode deferred)
+
+> **Decision (2026-06-14, owner-confirmed).** This is recorded here to prevent drift.
+
+StoryForge3 ships **agent-mode only**. The product model is:
+
+- **The agent (Claude Code / Codex) or external API drives the pipeline** — plan / draft / audit / revise / truth / export are triggered by the agent calling the REST API, not by the user clicking buttons.
+- **The Web UI is a read-only viewer** ("Run Viewer + 结果查看器"): it shows run progress (SSE) and stage results. The chapter page's stage steps are **view tabs** — clicking switches to that stage's result; the checkmark = "this stage has produced output". **Stage steps are NOT run triggers.**
+- **No run buttons in the UI.** Do not re-add click-to-run step buttons (规划/起草/审计/修订/批准/导出) or a "运行全流程" manual trigger without an explicit owner decision. Running is agent/API only.
+- **Manual text editing stays** (the author can edit chapter prose by hand) — that is refinement, not pipeline execution, and is not "manual mode".
+
+**Why:** the project pivoted to agent-mode-first; a button-driven UI assumes the user is a manual operator, which conflicts with the agent-driven model and produced inconsistent UX (run-on-click, re-triggering completed steps, progress not showing for agent runs).
+
+**Implication for contributors:** when working on the chapter page, treat it as a viewer. New "run" affordances belong behind the API + agent, not in the UI. Full per-stage result persistence (so every view tab is always loadable) and the complete `allowedActions` gating are P1 — see `docs/architecture-run-state-and-viewer.md`.
+
 ## Commands
 
 ```powershell
