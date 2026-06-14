@@ -44,22 +44,38 @@ python -m venv .venv
 .\.venv\Scripts\storyforge3.exe --help
 ```
 
-### 1.3 启动后端
+### 1.3 一键启动 Web 工作台
+
+```powershell
+cd D:\python\Novel\storyforge3
+.\.venv\Scripts\storyforge3.exe dev
+```
+
+这条命令会同时启动后端 API（`:8000`）和前端 Vite（`:5173`）。看到 `✓ ready → http://localhost:5173` 后再打开浏览器。
+
+验证：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8000/api/health
+Invoke-RestMethod http://localhost:5173/api/health
+```
+
+预期：响应中 `ok` 为 `True`，`data.status` 为 `ok`。
+
+> **重要：浏览器开发请使用 `storyforge3 dev`。** 只运行 `pnpm dev` 会让前端页面打开但后端不在线，书籍列表和所有 `/api/*` 请求都会失败，看起来像“书消失”或“页面坏”。
+
+### 1.4 高级 / 排错：分开启动
+
+仅在排查端口、代理或后端问题时使用双命令。
+
+终端 A：
 
 ```powershell
 cd D:\python\Novel\storyforge3
 .\.venv\Scripts\storyforge3.exe serve --port 8000
 ```
 
-另开终端验证：
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8000/api/health
-```
-
-预期：响应中 `ok` 为 `True`，`data.status` 为 `ok`。
-
-### 1.4 启动前端
+终端 B：
 
 ```powershell
 cd D:\python\Novel\storyforge3\web
@@ -90,7 +106,7 @@ StoryForge3 读取 CC-Switch 的 SQLite 数据库（`~/.cc-switch/cc-switch.db`�
 **A. Web UI（推荐）**
 
 1. 先在 CC-Switch 中配置并启用一个 provider。
-2. 启动后端（`storyforge3 serve`）和前端（`pnpm dev`）。
+2. 运行 `storyforge3 dev`，等待 `✓ ready`。
 3. 打开 `/settings` → **AI 供应商** 面板：
    - **导入**：打开「从 CC-Switch 导入」弹窗，勾选 provider（支持全选），点「导入」。CC-Switch 没装时弹窗会提示「未找到 CC-Switch 数据库」。
    - **切换**：点任一非当前 provider 卡片即可切为 active（实时生效，后端 per-request 读取 providers.json，无需重启）。
@@ -291,7 +307,7 @@ cd D:\python\Novel\storyforge3
 .\.venv\Scripts\storyforge3.exe --help
 ```
 
-验证：看到 `serve`、`book`、`chapter` 等子命令。
+验证：看到 `dev`、`serve`、`book`、`chapter` 等子命令。
 
 ### 端口 8000 被占用
 
@@ -300,10 +316,10 @@ cd D:\python\Novel\storyforge3
 处理：
 
 ```powershell
-.\.venv\Scripts\storyforge3.exe serve --port 8010
+.\.venv\Scripts\storyforge3.exe dev --port 8010
 ```
 
-同时修改 `web/vite.config.ts` 的 proxy target，或临时直接访问后端 API 验证。
+`dev` 会把 `VITE_API_URL=http://127.0.0.1:8010` 传给前端；若手动分开启动，则需要同步修改 `web/vite.config.ts` 的 proxy target，或临时直接访问后端 API 验证。
 
 ### 健康检查可用，但生成失败
 
@@ -322,14 +338,22 @@ Get-Content .storyforge3\providers.json
 
 现象：Web UI 能打开，但列表为空或 toast 报网络错误。
 
-处理：
+优先处理：
+
+```powershell
+.\.venv\Scripts\storyforge3.exe dev
+```
+
+不要只运行 `pnpm dev`。
+
+排查：
 
 ```powershell
 Invoke-RestMethod http://localhost:5173/api/health
 Invoke-RestMethod http://127.0.0.1:8000/api/health
 ```
 
-如果第二条成功、第一条失败，检查 Vite dev server 是否在 `web/` 目录启动。
+如果第二条成功、第一条失败，检查 Vite dev server 是否在 `web/` 目录启动。如果第二条失败，后端没有运行。
 
 ### LLM 请求很慢
 
@@ -353,7 +377,7 @@ books/
 
 ```powershell
 $env:BOOKS_DIR="D:\StoryForge3Books"
-.\.venv\Scripts\storyforge3.exe serve --port 8000
+.\.venv\Scripts\storyforge3.exe dev
 ```
 
 ## 6. 下一步

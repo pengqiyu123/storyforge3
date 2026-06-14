@@ -9,7 +9,7 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 **产品方向（2026-06-14 锁定，见 `CLAUDE.md` "Product Direction — agent-mode ONLY"）：agent 模式唯一实现，手动模式（UI 运行按钮）deferred。** agent（Claude Code/Codex）或外部 API 驱动管线；Web UI 是只读 Run Viewer（运行状态中心 + 结果查看），不再有"点击运行"的步骤按钮。核心引擎价值已由 dogfood 验证（火山引擎 ark-code-latest 可产出高质量章节正文）。
 
-当前阶段：**P1-1b 完成（545 passed；章节产物一致性诊断 + truth 防御 + provider 路径健壮性）→ P-OPS-1（统一启动入口）+ P-IMP-3（章节列表读 reconcile）→ P1-2（前端 Run Viewer）**。
+当前阶段：**P-OPS-1 完成（565 passed；`storyforge3 dev` 一键启动 + 启动诊断日志）→ P-IMP-3（章节列表读 reconcile，"5 章"修复）→ P1-2（前端 Run Viewer）**。
 
 ## 已交付阶段
 
@@ -38,7 +38,7 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前 |
 |----|------|
-| 后端测试 | **545 passed**（P1-1b 后；含 reconcile/truth 防御/provider 路径健壮性/火山 builder 测试） |
+| 后端测试 | **565 passed**（P-OPS-1 后；含 reconcile/truth 防御/provider 健壮性/dev_runner 双进程） |
 | 前端测试 | **82 passed**（ChapterPipeline 重写为查看模型后） |
 | Rust 测试 | 5 既有基线；本机无 cargo，需 CI 验证 |
 | Python lint | `ruff check .` clean |
@@ -47,7 +47,7 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 ## 当前工作焦点
 
-1. **P-OPS-1 统一启动入口**（指令已下发）：`storyforge3 dev` 一条命令起后端+前端 + 健康门 + 启动诊断日志，消除"后端没起→页面坏/书消失"复发。
+1. **P-IMP-3 章节列表读 reconcile**（待发）：`ChapterList` 从 `current_chapter+2` 启发式改为读 `GET /reconcile` 真相源，消除空卡片噪声 + 幽灵章节可见。依赖 P1-1b ✅ 已就绪。
 2. **P1-2 前端 Run Viewer 最小版**：`RunTrack`/`LiveStage`/`useRunRecord`/`useRunEvents`，刷新后能恢复 run 状态。
 3. **P1-3 门禁统一**：`allowedActions()` + 后端 guard + 前端镜像 + exported 新版本入口。
 

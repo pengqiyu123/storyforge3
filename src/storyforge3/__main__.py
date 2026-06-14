@@ -9,6 +9,7 @@ from pathlib import Path
 
 from storyforge3.audit.runner import AuditRunner
 from storyforge3.config import StoryForge3Config
+from storyforge3.dev_runner import run_dev
 from storyforge3.llm.factory import create_llm_service
 from storyforge3.llm.llm_service import ProviderUnavailableError
 from storyforge3.models import BookConfig
@@ -91,6 +92,12 @@ def main() -> int:
 
     serve_parser = subparsers.add_parser("serve", help="启动 API 服务器")
     serve_parser.add_argument("--port", type=int, default=8000, help="API 服务器监听端口")
+    serve_parser.add_argument("--reload", action="store_true", help="启用 uvicorn reload")
+    dev_parser = subparsers.add_parser("dev", help="一键启动后端和前端开发服务")
+    dev_parser.add_argument("--port", type=int, default=8000, help="API 服务器监听端口")
+    dev_parser.add_argument("--web-port", type=int, default=5173, help="前端 Vite 监听端口")
+    dev_parser.add_argument("--reload", action="store_true", help="启用后端 uvicorn reload")
+    dev_parser.add_argument("--open", action="store_true", help="ready 后打开浏览器")
     subparsers.add_parser("mcp", help="启动 MCP Server（STDIO 模式）")
 
     args = parser.parse_args()
@@ -104,8 +111,10 @@ def main() -> int:
     if args.command == "serve":
         import uvicorn
 
-        uvicorn.run("storyforge3.api.app:app", host="127.0.0.1", port=args.port, reload=False)
+        uvicorn.run("storyforge3.api.app:app", host="127.0.0.1", port=args.port, reload=args.reload)
         return 0
+    if args.command == "dev":
+        return run_dev(api_port=args.port, web_port=args.web_port, reload=args.reload, open_browser=args.open)
     if args.command == "mcp":
         from storyforge3.mcp.server import create_server
 

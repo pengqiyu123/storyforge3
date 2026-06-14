@@ -27,6 +27,7 @@ cd D:\python\Novel\storyforge3
 & .\.venv\Scripts\python.exe scripts\e2e_test.py
 & .\.venv\Scripts\python.exe scripts\e2e_multi_chapter.py
 storyforge3 health
+storyforge3 dev
 storyforge3 serve --port 8000
 ruff check .
 cd web; pnpm build; pnpm test
@@ -82,7 +83,7 @@ Draft and revision payloads include world, character, and relevant truth context
 ### Service Boundary
 
 The 11 service protocols in `src/storyforge3/services/protocols.py` keep business logic ready for CLI, web, or desktop frontends.
-FastAPI exposes these services through REST routes plus `/api/events` SSE, and `storyforge3 serve --port 8000` starts the local API server.
+FastAPI exposes these services through REST routes plus `/api/events` SSE. Use `storyforge3 dev` for browser development so the API and Vite frontend start together; `storyforge3 serve --port 8000` remains the backend-only entrypoint.
 
 ### Desktop Shell
 

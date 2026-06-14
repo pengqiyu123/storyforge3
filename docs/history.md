@@ -3,6 +3,20 @@
 > 更新时间：2026-06-14  
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
 
+## P-OPS-1：统一启动入口（2026-06-14）
+
+状态：完成。后端 565 passed（+20 vs P1-1b 的 545）/ ruff clean / 16 dev_runner 测试。
+
+关键里程碑：
+
+- **`storyforge3 dev` 子命令**：一条命令同时起 FastAPI(:8000) + Vite(:5173)，`[api]`/`[web]` 日志前缀，健康门（轮询 `/api/health` 校验 `ok`+`status==ok`，30s 超时），SIGINT/SIGTERM 优雅退出（Windows `taskkill /T /F` 进程树清理）。
+- **启动诊断日志**：ready 时只读打印 providers.json 绝对路径(exists) + active_provider(label+model) + ccswitch_db(available) + books_dir(N books)——让"导入成功但读不到 provider"一眼可见，不创建 `.storyforge3`。
+- **清晰错误**：`DevProcessError` 覆盖命令缺失 / web 目录缺失 / 端口占用 / 健康超时 / 子进程早退 / 端口类 OSError。
+- **无新重依赖**：stdlib `asyncio.subprocess` + urllib + 既有 uvicorn；默认不开浏览器（`--open` 可选）。
+- **借鉴**：`src-tauri/process_manager.rs` 双进程 + 健康门 + 进程树终止模式。
+
+文档：`docs/quickstart.md` 顶部加警示"浏览器开发必须用 `storyforge3 dev`，否则后端不在线→书消失"；`CLAUDE.md` Commands + Service Boundary 更新。
+
 ## P1-1b：章节产物一致性诊断 + truth 防御 + provider 健壮性（2026-06-14）
 
 状态：完成。后端 545 passed（+13 vs P1-1 的 532）/ ruff clean / typecheck clean。

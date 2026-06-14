@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from uuid import uuid4
 
 
 @dataclass(frozen=True)
@@ -86,16 +89,28 @@ class BookStorage:
     @staticmethod
     def _atomic_write_text(path: Path, text: str) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(path.suffix + ".tmp")
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.{uuid4().hex}.tmp")
         try:
             tmp.write_text(text, encoding="utf-8")
-            tmp.replace(path)
+            BookStorage._replace_with_retry(tmp, path)
         except BaseException:
             try:
                 tmp.unlink(missing_ok=True)
             except OSError:
                 pass
             raise
+
+    @staticmethod
+    def _replace_with_retry(tmp: Path, path: Path) -> None:
+        attempts = 5
+        for attempt in range(attempts):
+            try:
+                tmp.replace(path)
+                return
+            except PermissionError:
+                if attempt == attempts - 1:
+                    raise
+                time.sleep(0.02 * (attempt + 1))
 
     def ensure_dir(self, path: Path) -> None:
         path.mkdir(parents=True, exist_ok=True)
