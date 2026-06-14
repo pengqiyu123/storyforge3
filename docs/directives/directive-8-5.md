@@ -91,10 +91,10 @@ README 的扩展版。包含 README 省略的细节：
 - CC-Switch 安装和配置的详细步骤
 - `.storyforge3/providers.json` 的完整 schema 说明
 - `StoryForge3Config` 所有环境变量的说明（从 `config.py` 提取）
-- 常见问题排查（参考 `docs/mcp-registration.md` 的"故障排查"章节格式）
+- 常见问题排查（参考 `docs/architecture/mcp-registration.md` 的"故障排查"章节格式）
 - 从零到第一章的完整操作截图（文字描述即可，不需要实际截图）
 
-### 1.3 更新 `docs/release-setup.md`
+### 1.3 更新 `docs/release/release-setup.md`
 
 当前文档第 39 行说 "Desktop releases do not include the Python backend"，但 Phase 8A-1 已添加 sidecar 打包。更新为准确描述两种模式：
 - sidecar 模式：Tauri bundle 内含 Python 后端（通过 `build_sidecar.ps1` 构建）
@@ -202,7 +202,7 @@ pnpm dev
 | 借鉴内容 | 来源文件 | 借鉴方式 | 新写比例 |
 |---------|---------|---------|---------|
 | README "快速开始"章节结构 | `storyforge2/README.md` 第 19-35 行 | 骨架移植：复用 venv→install→test 结构，替换为 SF3 的命令和依赖 | 40% |
-| 故障排查章节格式 | `storyforge3/docs/mcp-registration.md` 第 119-168 行 | 骨架移植：现象→处理→验证的三段式结构 | 30% |
+| 故障排查章节格式 | `storyforge3/docs/architecture/mcp-registration.md` 第 119-168 行 | 骨架移植：现象→处理→验证的三段式结构 | 30% |
 | providers.json 格式参考 | `storyforge3/src/storyforge3/llm/ccswitch_reader.py` | 模式复用：从代码提取实际 JSON 结构 | 20% |
 
 ### 无直接来源说明
@@ -218,7 +218,7 @@ pnpm dev
 - [ ] `storyforge3/README.md` 存在，包含完整的快速开始章节
 - [ ] `docs/quickstart.md` 存在，包含环境变量说明和故障排查
 - [ ] `docs/dogfood-protocol.md` 存在，包含记录模板
-- [ ] `docs/release-setup.md` 已更新，反映 sidecar 模式
+- [ ] `docs/release/release-setup.md` 已更新，反映 sidecar 模式
 - [ ] README 中的每条命令都是可复制粘贴执行的
 - [ ] providers.json 示例是合法 JSON 且包含所有必需字段
 
@@ -250,7 +250,7 @@ pnpm dev
 | `README.md` | ~120 行 | 新建 |
 | `docs/quickstart.md` | ~200 行 | 新建 |
 | `docs/dogfood-protocol.md` | ~80 行 | 新建 |
-| `docs/release-setup.md` | 修改 ~10 行 | 更新 sidecar 描述 |
+| `docs/release/release-setup.md` | 修改 ~10 行 | 更新 sidecar 描述 |
 | 代码修错 | ≤50 行 | 冷启动发现的问题修复 |
 | **合计** | **~460 行** | 以文档为主 |
 

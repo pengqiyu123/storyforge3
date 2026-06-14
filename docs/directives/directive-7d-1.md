@@ -174,7 +174,7 @@ jobs:
 
 ### 3.2 签名密钥生成文档
 
-**新文件**：`docs/release-setup.md`
+**新文件**：`docs/release/release-setup.md`
 
 内容：
 
@@ -225,7 +225,7 @@ git push origin v0.1.0
 | **latest.json 组装** | CC-Switch `.github/workflows/release.yml:565-660` | ~95 行 | **模式复用**：shell 脚本遍历 .sig 文件生成 JSON，简化为 Windows-only |
 | **tauri.conf.json updater 配置** | CC-Switch `src-tauri/tauri.conf.json` bundle + plugins 段 | ~20 行 | **直接复用**：`createUpdaterArtifacts`、`pubkey` 字段格式 |
 
-**新写比例**：约 **25%**。CI/CD YAML 骨架从 CC-Switch 移植，SF3 特有的部分：Python backend CI job、简化为 Windows-only 的 release 矩阵、release-setup.md 文档。
+**新写比例**：约 **25%**。CI/CD YAML 骨架从 CC-Switch 移植，SF3 特有的部分：Python backend CI job、简化为 Windows-only 的 release 矩阵、release/release-setup.md 文档。
 
 ### 移植适配清单
 
@@ -262,7 +262,7 @@ git push origin v0.1.0
 
 - [ ] `tauri.conf.json` 添加 `createUpdaterArtifacts: true`
 - [ ] `tauri.conf.json` 添加 `pubkey` 字段（值可以是占位符，文档说明如何替换）
-- [ ] `docs/release-setup.md` 包含密钥生成和 GitHub Secrets 配置说明
+- [ ] `docs/release/release-setup.md` 包含密钥生成和 GitHub Secrets 配置说明
 
 ### 质量
 
@@ -278,7 +278,7 @@ git push origin v0.1.0
 | CI workflow | `.github/workflows/ci.yml` | ~60 行新增 |
 | Release workflow | `.github/workflows/release.yml` | ~100 行新增 |
 | tauri.conf.json 修改 | `src-tauri/tauri.conf.json` | ~3 行改动 |
-| 签名设置文档 | `docs/release-setup.md` | ~40 行新增 |
+| 签名设置文档 | `docs/release/release-setup.md` | ~40 行新增 |
 | **合计** | **4 个文件** | **~200 行** |
 
 ---

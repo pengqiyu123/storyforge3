@@ -3,13 +3,13 @@
 
 我认同 ClaudeCode 对 P0.5 的完成判断：**这轮修复方向正确，且已经解决 dogfood 的核心阻塞：SSE 到不了浏览器、agent 触发时前端无反馈、刷新/未开始章节 404 噪音。**
 
-我核对了 [architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md) 和关键实现，结论如下。
+我核对了 [architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md) 和关键实现，结论如下。
 
 ---
 
 ## 1. 对架构文档的理解
 
-[architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md#L1-L6) 的核心判断是：
+[architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md#L1-L6) 的核心判断是：
 
 > 章节页不再是“六按钮控制面板”，而是“Run Viewer + 结果查看器”。
 
@@ -25,9 +25,9 @@ RunRecord/SSE 负责可观察性
 
 文档里最关键的三个设计点是：
 
-1. **章节产物状态 vs 运行实例状态拆分**，见 [architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md#L9-L37)。
-2. **PipelineRunRecord 一等公民**，见 [architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md#L40-L79)。
-3. **Run Viewer 取代六按钮布局**，见 [architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md#L102-L122)。
+1. **章节产物状态 vs 运行实例状态拆分**，见 [architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md#L9-L37)。
+2. **PipelineRunRecord 一等公民**，见 [architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md#L40-L79)。
+3. **Run Viewer 取代六按钮布局**，见 [architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md#L102-L122)。
 
 这三点都是 P1 的正确主线。
 
@@ -201,7 +201,7 @@ POST /run -> 立即返回 run_id
 
 ### FastAPI BackgroundTasks / asyncio.Task：短期可行
 
-文档 [architecture-run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture-run-state-and-viewer.md#L126-L139) 建议 P1 用 FastAPI `BackgroundTasks` 或进程内 registry。  
+文档 [architecture/run-state-and-viewer.md](file:///D:/python/Novel/storyforge3/docs/architecture/run-state-and-viewer.md#L126-L139) 建议 P1 用 FastAPI `BackgroundTasks` 或进程内 registry。  
 我认为对当前单机 dogfood 是合理的。
 
 但要明确限制：

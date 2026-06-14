@@ -72,10 +72,10 @@
 ## 提交 4（可选）— `docs: add PM directives and audit for dogfood fix1`
 
 4 个 untracked PM 文档，与本批代码无强耦合，可单独 docs 提交或保留 untracked（用户定）：
-- `docs/codex-status-execution-plan-audit.md`（豆包审计 + PM §11 收口指令，已被 ad07b27 执行）
-- `docs/chapter-plan-persistence-review.md`
+- `docs/reviews/codex-execution-plan-audit.md`（豆包审计 + PM §11 收口指令，已被 ad07b27 执行）
+- `docs/reviews/chapter-plan-persistence.md`
 - `docs/directives/directive-10a-dogfood-fix1-plan-persistence.md`
-- `docs/Phase 10A 后续方向决策评估豆包.md`
+- `docs/reviews/doubao-phase10a-direction-eval.md`
 
 ---
 

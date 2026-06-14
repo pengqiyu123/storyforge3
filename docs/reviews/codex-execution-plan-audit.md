@@ -3,6 +3,7 @@
 > 审计对象：Codex 关于 `truth timeout`、`plan persistence`、后续测试与 dogfood 恢复顺序的状态分析和执行计划。  
 > 审计方式：静态代码核对为主，辅以一次针对性测试尝试。  
 > 结论级别：当前后端处于 **不可重启稳定态**，必须先收口 `plan persistence` 半成品，再继续 dogfood。
+> 📦 **时效性（2026-06-14 审核）：历史归档。** 审计的 plan persistence / truth timeout / dogfood 恢复顺序问题均已收口（P0.5 完成，后端 522 绿）。"不可重启稳定态"结论已不再成立。
 
 ---
 

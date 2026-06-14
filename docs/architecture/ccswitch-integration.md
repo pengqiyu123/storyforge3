@@ -1,6 +1,7 @@
 # CC-Switch 中转站集成 — LLM 多端点多协议容错调用 功能规格
 
 > 此文档是给 Codex 的完整实现规格，无需参考源码即可实现。
+> ⚠️ **时效性（2026-06-14 审核）：部分过期。** 此为实现规格（已落地），文中 provider 示例（Codex 直连中转）已被实际使用的火山引擎 ark-code-latest / weShareAi 取代。集成架构（只读 SQLite + 双层路由）仍有效，provider 配置以 `.storyforge3/providers.json` 实际为准。
 
 ## 一、背景
 

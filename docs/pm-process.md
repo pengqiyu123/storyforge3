@@ -33,7 +33,7 @@
 Step 1: 调研现状 → 探索代码库，理解当前实现和缺口
 Step 2: 借鉴评估 → 在所有关联项目中搜索可移植代码（必做）
 Step 3: 编写指令 → 输出 directive 文件
-Step 4: 更新 roadmap → 在 roadmap-phase5.md 中添加新阶段条目
+Step 4: 更新 roadmap → 在 roadmap/phase5.md 中添加新阶段条目
 ```
 
 ### 指令文件结构（固定模板）
@@ -146,7 +146,7 @@ Step 4: 更新 roadmap → 在 roadmap-phase5.md 中添加新阶段条目
 
 Phase 8A-1 复盘发现：Python sidecar 打包指令在编写前跳过了既有调研与本地成熟参考，导致借鉴归因和打包风险识别不充分。后续凡涉及桌面分发、PyInstaller、Tauri bundle、安装包体积、发布 CI 的任务，必须额外执行：
 
-1. **先读项目调研报告**：至少读取 `docs/research-sf3-gap-analysis.md` 中的桌面分发基线，特别是纯 Tauri 便携包体积（约 8MB）与 sidecar 后体积增长的权衡。
+1. **先读项目调研报告**：至少读取 `docs/research/sf3-gap-analysis.md` 中的桌面分发基线，特别是纯 Tauri 便携包体积（约 8MB）与 sidecar 后体积增长的权衡。
 2. **搜索本地成熟项目**：必须在 `storyforge/process/` 下检索 Manuskript / novelWriter 等打包脚本，再决定 spec、datas、资源包含和构建方式。
 3. **核对真实参考归因**：CC-Switch 是纯 Tauri/Rust 应用，不是 Python sidecar / PyInstaller 参考来源；不得把无 sidecar 的项目列为 sidecar 架构借鉴。
 4. **列出打包完整性风险**：必须说明 PyInstaller `datas` / package data / hidden imports / 图标 / UPX / 杀毒误报 / 安装包体积的验证计划。
@@ -185,7 +185,7 @@ pnpm build
 ### 4.4 文档更新
 
 验收通过后更新三个文档：
-1. `docs/roadmap-phase5.md` — 添加验收结果
+1. `docs/roadmap/phase5.md` — 添加验收结果
 2. `docs/current.md` — 更新当前状态、测试数、覆盖率
 3. `docs/history.md` — 记录阶段完成结果
 4. `docs/next.md` — 更新下一阶段计划和风险
@@ -201,7 +201,7 @@ pnpm build
 
 ### 执行顺序
 
-按 `phase7-plan.md` 的建议顺序执行：`7A → 7B → 7C → 7D`
+按 `roadmap/phase7.md` 的建议顺序执行：`7A → 7B → 7C → 7D`
 
 ### 阶段内部优先级
 

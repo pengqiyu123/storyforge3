@@ -155,7 +155,7 @@ PM 代码审查确认问题 #3 是**设计级缺陷**，非简单 bug：
 
 **三个缺失**：① `StoragePaths` 无 `plan_file()`；② `plan()` 无状态推进；③ `get_status()` 无文本即返回 None → 404。
 
-**修复方向**：Plan 升级为持久化一等步骤，与全管线自洽。详见 `directive-10a-dogfood-fix1-plan-persistence.md`。豆包独立审查（`chapter-plan-persistence-review.md` + `豆包评估.md`）结论一致，并补强前端恢复 + 语义澄清。
+**修复方向**：Plan 升级为持久化一等步骤，与全管线自洽。详见 `directive-10a-dogfood-fix1-plan-persistence.md`。豆包独立审查（`reviews/chapter-plan-persistence.md` + `proposals/doubao-p0.5-p1-eval.md`）结论一致，并补强前端恢复 + 语义澄清。
 
 ## 总体判定
 

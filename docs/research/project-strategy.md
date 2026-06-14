@@ -4,6 +4,7 @@
 > 日期：2026-06-11
 > 版本：v1.0
 > 输入源：[评估.md](../../评估.md)、[豆包意见.md](../../豆包意见.md)、代码库实地验证
+> ⚠️ **时效性（2026-06-14 审核）：部分过期。** 此处规划的后续路线（dogfood→10B）已被 P0.5 + P1（agent-mode ONLY + RunRecord）取代。战略背景仍有效，执行路线以 `current.md` / `next.md` 为准。
 > 基线：486 后端 tests / 62 前端 tests / ruff clean / pnpm build clean
 
 ---

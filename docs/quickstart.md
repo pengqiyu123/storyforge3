@@ -358,6 +358,6 @@ $env:BOOKS_DIR="D:\StoryForge3Books"
 
 ## 6. 下一步
 
-- MCP 集成：见 `docs/mcp-registration.md`
+- MCP 集成：见 `docs/architecture/mcp-registration.md`
 - Dogfood 测试：见 `docs/dogfood-protocol.md`
-- 发布与桌面打包：见 `docs/release-setup.md`
+- 发布与桌面打包：见 `docs/release/release-setup.md`

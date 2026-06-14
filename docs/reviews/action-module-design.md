@@ -1,5 +1,7 @@
 # StoryForge3 动作模块化设计反思
 
+> 📦 **时效性（2026-06-14 审核）：历史归档。** 本反思假设的"UI 动作模块化"前提已被 agent-mode ONLY 取代——动作由 agent/API 驱动，非 UI 封装。保留作设计思路参考，当前方向见 `../current.md` / `../architecture/run-state-and-viewer.md`。
+
 ## 1. 文档目的
 
 本文档反思 StoryForge3 当前设计是否应将所有指定动作操作封装为独立、可复用的功能模块。

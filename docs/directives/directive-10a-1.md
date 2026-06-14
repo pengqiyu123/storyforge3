@@ -4,7 +4,7 @@
 > 产品经理：Claude Code PM
 > 执行者：Codex
 > 前置条件：Phase 8.5 完成（486 后端 tests, 62 前端 tests, ruff clean, pnpm build clean）
-> 战略来源：`docs/project-strategy.md` Phase A-3
+> 战略来源：`docs/research/project-strategy.md` Phase A-3
 
 ## 任务概述
 
@@ -15,7 +15,7 @@
 - **无覆盖率数字**：从未运行 `pytest --cov`，无法量化测试质量
 - `project-status-and-forward-plan.md` 442 行，混合了状态/历史/计划三种职责
 - `docs/adr/` 目录空置（仅 `.gitkeep`），关键架构决策无独立记录
-- `架构决策-前端与规范.md` 存在但不是正式 ADR 格式
+- `architecture/架构决策-前端与规范.md` 存在但不是正式 ADR 格式
 
 ### 本阶段交付
 
@@ -107,8 +107,8 @@ cd storyforge3
 - Phase 10A 路线图（Phase A 的 3 个子阶段 + 验收标准）
 - Phase 10B 规划概要（自动导演 MVP）
 - Phase 10C 规划概要（RAG + 方法论 + 产品化）
-- 风险矩阵（从 `project-strategy.md` §七提取）
-- Phase A 量化目标表（从 `project-strategy.md` 附录 B 提取）
+- 风险矩阵（从 `research/project-strategy.md` §七提取）
+- Phase A 量化目标表（从 `research/project-strategy.md` 附录 B 提取）
 
 ### 2.2 删除原文件
 
@@ -119,7 +119,7 @@ cd storyforge3
 搜索所有引用 `project-status-and-forward-plan.md` 的文件，更新为新的文件路径。至少检查：
 - `CLAUDE.md`
 - `docs/pm-process.md`
-- `docs/project-strategy.md`
+- `docs/research/project-strategy.md`
 - 其他 directives 中的引用
 
 ## Part 3：ADR 启用
@@ -163,7 +163,7 @@ cd storyforge3
 - **决策**：React 19 + Vite 7 + TypeScript + Tailwind 4 + shadcn/ui
 - **替代方案**：Vue 3 + Element Plus（参考项目评分 D+）、纯 CLI 无前端
 - **后果**：现代开发体验，组件库成熟；需要 Node.js 工具链
-- **证据**：`web/package.json`、`docs/架构决策-前端与规范.md`
+- **证据**：`web/package.json`、`docs/architecture/架构决策-前端与规范.md`
 
 #### ADR-003：Truth 系统 — SQLite 结构化事实存储
 
@@ -201,13 +201,13 @@ cd storyforge3
 | 借鉴内容 | 来源文件 | 借鉴方式 | 新写比例 |
 |---------|---------|---------|---------|
 | ADR 模板格式 | `~/.claude/rules/patterns/templates.md` ADR Template | 直接移植：复制模板格式，填入 SF3 内容 | ≤20% |
-| 架构决策背景 | `docs/架构决策-前端与规范.md` | 骨架移植：提取决策要点，重组为 ADR 格式 | 30% |
+| 架构决策背景 | `docs/architecture/架构决策-前端与规范.md` | 骨架移植：提取决策要点，重组为 ADR 格式 | 30% |
 | 状态文档拆分模式 | `storyforge/` 的分层文件架构（三层内容模型） | 模式复用：按职责拆分的思路 | 40% |
 | 覆盖率报告 | 无——pytest-cov 标准输出 | 新写：只是记录数字 | 80% |
 
 ### 无直接来源说明
 
-- ADR 内容：决策散落在 CLAUDE.md、directives、`架构决策-前端与规范.md` 中，无现成 ADR 格式文件。需要从多源提取。
+- ADR 内容：决策散落在 CLAUDE.md、directives、`architecture/架构决策-前端与规范.md` 中，无现成 ADR 格式文件。需要从多源提取。
 - 文档拆分：`project-status-and-forward-plan.md` 是 SF3 特有的状态文档，拆分方式需要根据实际内容调整。
 
 ## 验收标准

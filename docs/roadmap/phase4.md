@@ -2,6 +2,7 @@
 
 > 创建日期：2026-06-08
 > 状态：✅ Phase 4 完成（2026-06-08）
+> 📦 **时效性（2026-06-14 审核）：历史归档。** Phase 4 已完成，路线图保留作阶段背景，进度以 `../history.md` 为准。
 > 前置里程碑：Phase 3 P0（3 章 E2E 全链路通过）
 
 ---
@@ -170,7 +171,7 @@ Phase 4A（引擎安全网）  →  Phase 4B（引擎能力）  →  Phase 4C（
 
 | 阶段 | 功能 | 依据 |
 |------|------|------|
-| Phase 5A | React 前端 | `docs/剩余功能评估.md` 方案 B |
+| Phase 5A | React 前端 | `docs/research/剩余功能评估.md` 方案 B |
 | Phase 5B | 短篇管线 | InkOS 7阶段简化为5阶段 |
 | Phase 5C | 通知渠道 | Telegram/飞书/企微 Webhook |
 | Phase 5D | 同人模式 | canon 导入 + 4 模式审计 |

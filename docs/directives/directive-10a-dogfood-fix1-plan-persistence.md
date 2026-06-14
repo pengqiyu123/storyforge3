@@ -69,7 +69,7 @@ async def get_status(self, book_id: str, chapter_no: int) -> ChapterResult | Non
 
 **设计决策**：Plan 升级为**持久化的一等步骤**，与全管线行为对齐。这不是 bug 修补，是把缺失的持久化补齐，使单步操作与全管线自洽。
 
-**定位（重要）**：这是**跨模式的数据正确性底线**，不是手动模式独有需求。无论 agent 调 `POST /run` 全管线、还是用户点单步按钮，只要生成了 plan，就必须落盘——可审计、可复用、run 失败时不必重新规划。`ChapterService.plan()` 是 service 层入口，一处改、全路径生效（单步端点 / 全管线 workflow / CLI 都经过）。豆包独立审查（`chapter-plan-persistence-review.md`）结论与本方案一致。
+**定位（重要）**：这是**跨模式的数据正确性底线**，不是手动模式独有需求。无论 agent 调 `POST /run` 全管线、还是用户点单步按钮，只要生成了 plan，就必须落盘——可审计、可复用、run 失败时不必重新规划。`ChapterService.plan()` 是 service 层入口，一处改、全路径生效（单步端点 / 全管线 workflow / CLI 都经过）。豆包独立审查（`reviews/chapter-plan-persistence.md`）结论与本方案一致。
 
 ### 改动 1：存储路径 — `StoragePaths` 增加 `plan_file()`
 

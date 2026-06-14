@@ -163,7 +163,7 @@ import { ChapterEditor } from "@/components/editor/ChapterEditor";
 
 ### 5. 路线图更新
 
-**文件**：`storyforge3/docs/roadmap-phase5.md`
+**文件**：`storyforge3/docs/roadmap/phase5.md`
 
 在文件末尾追加 Phase 6 路线图头部（阶段总览）：
 
@@ -256,4 +256,4 @@ Phase 6A-1（CodeMirror 编辑器）：
 
 ### 更新
 
-7. `storyforge3/docs/roadmap-phase5.md` — Phase 6 路线图头部
+7. `storyforge3/docs/roadmap/phase5.md` — Phase 6 路线图头部

@@ -1,6 +1,6 @@
 # 指令 P1-1：RunRecord 后端最小闭环
 
-> 下发 Codex（Codex 罢工则 Claude 实施）。架构依据 `docs/architecture-run-state-and-viewer.md` §2-5；外部评估 `docs/proposals/豆包评估-p0.5-p1.md` P1-1。
+> 下发 Codex（Codex 罢工则 Claude 实施）。架构依据 `docs/architecture/run-state-and-viewer.md` §2-5；外部评估 `docs/proposals/doubao-p0.5-p1-eval.md` P1-1。
 > 前置：P0.5 已完成（章节页纯查看 + SSE 流式可用，522/82 绿）。
 > 目标：**刷新后前端能知道"后台之前跑到哪"**——把 run 状态从内存（SSE 最近 100 条回放）升级为持久化一等公民。完成后回报。
 
@@ -36,6 +36,36 @@ P0.5 让 SSE 事件能到浏览器、流式正文可见，但 run 状态只在�
 - 现有 `pipeline:start|progress|complete|error` + `llm:progress` 重命名为 `stage:start|progress|complete|error`（保留 `llm:chunk` 流式正文）
 - 加 `run:start / run:complete / run:waiting`
 - **后端本期发新名**；前端适配层在 P1-2 处理（过渡期可双发或前端临时映射，勿断流式）
+
+## Part 3：借鉴来源
+
+### 主要借鉴：StoryForge2 run 生命周期模型
+
+StoryForge2 有完整的 run tracking 体系，与 P1-1 RunRecord 高度同构。
+
+| 借鉴内容 | 来源文件 | 行数 | 借鉴方式 |
+|---------|---------|------|---------|
+| **run 生命周期协议** `start_run(book_id, chapter_no, action, actor_role, input_refs)` / `finish_run(run_id, ...)` | `storyforge2/engine/cli/studio_actions.py:52-57` | ~20 行 | **骨架移植** → RunRegistry 的 `start/mark_stage_*/complete/fail/cancel` 方法签名直接对齐 SF2 的 start_run/finish_run 协议 |
+| **artifact ↔ run 关联** `ArtifactRecord.produced_by_run_id` | `storyforge2/engine/schemas/artifact.py:48-57` | ~10 行 | **模式复用** → PipelineRunRecord.run_id + stage_results 的设计依据 |
+| **阶段产物 record 模式** `RevisionRecord`/`ChapterPlanRecord`/`ChapterSettlementRecord`/`GateDecisionRecord` | `storyforge2/engine/schemas/artifact.py:123-176` | ~50 行 | **模式复用** → StageResult(dataclass) 字段对齐（stage/status/started/finished/error/summary） |
+| **status.last_run_id 持久化指针** | `storyforge2/engine/cli/studio_actions.py:155` | — | **模式复用** → `current_run.json` 指针机制 |
+
+### 内部复用：SF3 既有基础设施
+
+| 借鉴内容 | 来源文件 | 借鉴方式 |
+|---------|---------|---------|
+| **状态转移** `advance()` + `InvalidTransitionError` + `force_needs_review()` | `state/machine.py:27-47` | **直接复用** → APPROVED→TRUTH_COMMITTED→EXPORTED 转移加法 |
+| **SSE 事件发布** `SSEManager.publish(event: PipelineEvent)` | `api/sse.py:31-51` | **直接复用** → stage/run 事件发布 |
+| **原子 JSON 持久化** tmp + rename | `snapshot.py` + `storage._atomic_write_text` | **直接复用** → runs/{run_id}.json + current_run.json 写入 |
+| **后台任务包装** `ChapterWorkflow.run()` | `workflow.py` | **直接复用** → 异步 POST /run 包一层 RunRecord 更新 |
+
+### InkOS 对照（已验证无直接可移植代码）
+
+搜索 `docs/inkos-master/packages/core/src` 的 `runId/pipelineRun/RunRecord/stageResult` → **零命中**。InkOS 的 pipeline 是内存执行流，无持久化 run record。架构对照（持久化 run 状态）是 SF3 的新增设计点，但 SF2 已有等价模型，故借鉴源充分。
+
+**新写比例**：约 **35%**。模型/持久化/状态机/SSE 全部复用 SF3 内部 + SF2 run 协议骨架；真正新写的是 RunRegistry 进程内生命周期管理 + 异步 POST /run endpoint 包装 + resumable 启动扫描逻辑。
+
+---
 
 ## 验收门禁（全过）
 ```powershell

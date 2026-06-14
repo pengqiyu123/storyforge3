@@ -2,7 +2,7 @@
 
 > 更新时间：2026-06-14
 > 职责：只记录后续计划、风险和目标。当前事实见 `docs/current.md`，历史见 `docs/history.md`。
-> 架构依据：`docs/architecture-run-state-and-viewer.md`；外部评估：`docs/proposals/豆包评估-p0.5-p1.md`。
+> 架构依据：`docs/architecture/run-state-and-viewer.md`；外部评估：`docs/proposals/doubao-p0.5-p1-eval.md`。
 
 ## 总方向
 

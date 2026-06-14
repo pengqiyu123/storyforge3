@@ -371,7 +371,7 @@ mcp = FastMCP(
 
 ### 3.1 新建注册文档
 
-**新文件**：`docs/mcp-registration.md`
+**新文件**：`docs/architecture/mcp-registration.md`
 
 内容：
 
@@ -501,7 +501,7 @@ claude mcp add storyforge3 -- python -m storyforge3.mcp
 
 ### 注册文档
 
-- [ ] `docs/mcp-registration.md` 包含 `claude mcp add` 一行命令
+- [ ] `docs/architecture/mcp-registration.md` 包含 `claude mcp add` 一行命令
 - [ ] 包含 `.claude/settings.json` 手动配置片段
 - [ ] 包含验证步骤
 - [ ] 包含 15 个 tool 速查表
@@ -525,7 +525,7 @@ claude mcp add storyforge3 -- python -m storyforge3.mcp
 |------|------|---------|
 | 15 个 tool docstring 改写 | `mcp/tools.py` | ~150 行改动（替换现有 docstring） |
 | server.py instructions | `mcp/server.py` | ~5 行改动 |
-| 注册文档 | `docs/mcp-registration.md` | ~80 行新增 |
+| 注册文档 | `docs/architecture/mcp-registration.md` | ~80 行新增 |
 | 测试更新 | `tests/test_mcp_server.py` | ~5 行改动（如有 match 变化） |
 | **合计** | **4 个文件** | **~240 行** |
 

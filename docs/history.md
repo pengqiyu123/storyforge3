@@ -3,6 +3,35 @@
 > 更新时间：2026-06-14  
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
 
+## P1-1b：章节产物一致性诊断 + truth 防御 + provider 健壮性（2026-06-14）
+
+状态：完成。后端 545 passed（+13 vs P1-1 的 532）/ ruff clean / typecheck clean。
+
+关键里程碑（Codex commit `e0e020b`）：
+
+- **ChapterReconciler + `GET /api/books/{id}/reconcile`**：6 类产物对照（text/plan/truth/export/state/run），4 条 inconsistent 规则（`export_without_state`/`export_without_text`/`truth_without_state`/`orphan_state`）。对《别打了》输出 ch3/ch4 inconsistent（含全部 3 条 export/truth 相关 reason）、ch1/ch2 consistent。
+- **truth retriever 防御**：严格 `< 目标章` 过滤 + 防御测试断言。
+- **export 扫描只认真实导出文件**：排除 `.tmp` / meta sidecar；`StoragePaths.truth_file()` 统一为 `truth/chapter-XXXX.json`。
+- **provider 路径健壮性（P-IMP-1 一并落地）**：`providers_config_dir` 锚定项目根（`resolved_providers_config_dir`）；`CCSWITCH_DB_PATH` 正式生效；无 key provider 前端禁选 + 后端 `NO_IMPORTABLE_PROVIDER`；火山 `/api/coding` builder + route-candidate 测试。
+- **只读诊断，不 heal**：ch3/ch4 幽灵章节未清理，`book.json.current_chapter` 未改（等 PM 决定）。
+
+事故（同日，非代码 bug）：用户只起前端 `pnpm dev`、后端 `:8000` 未运行 → "网页能开但报错 + 小说消失"。PM 直跑数据层确认 `BOOK COUNT=1`（数据完整），起后端即恢复。**第二次同因事故** → 下发 P-OPS-1（统一启动入口）。详见 `docs/reviews/pm-consolidated-decisions-2026-06-14.md`。
+
+## P1-1：RunRecord 后端最小闭环（2026-06-14）
+
+状态：完成。后端 532 passed（+10 vs P0.5 的 522）/ ruff clean。
+
+关键里程碑：
+
+- **RunRecord 一等公民**：`RunStatus` / `StageResult` / `PipelineRunRecord` 落地，持久化到 `books/{id}/chapters/{n}/runs/{run_id}.json` + `current_run.json`。
+- **异步 POST /run**：改异步，`asyncio.create_task` 后台跑，立即返 `run_id`（实测 14-20ms，<50ms 达标）。
+- **GET /run + resume + cancel** 端点齐备；后台任务每阶段 `mark_stage_start/complete` 更新 RunRecord + publish SSE。
+- **resumable 不假装无损**：启动 `scan_resumable_runs()` 把重启前 running/pending/waiting 的 run 降级为 resumable（asyncio task 无法跨重启存活，注释明确）。
+- **TRUTH_COMMITTED 门禁链**：`APPROVED → TRUTH_COMMITTED → EXPORTED`；`ExportService` 只允许 TRUTH_COMMITTED/EXPORTED 导出。
+- **SSE 兼容**：保留 `pipeline:*`/`llm:*`，补 `run:*`/`stage:*`。
+
+未做（PM §F 附加，转 P1-1b）：reconciliation 识别"有产物无 state"幽灵章节（如《别打了》ch3/ch4）、truth retriever 防御测试。
+
 ## P0.5：解除 dogfood 阻塞 + agent-mode-only 范式落地（2026-06-13/14）
 
 状态：完成。后端 522 passed / ruff clean；前端 82 passed / build clean。
@@ -20,7 +49,7 @@
 - **CI 三连修复**：`.gitignore books/`→`/books/` 锚根 + `python -m pytest` + 补回被错误忽略的 `web/src/components/books/`。
 - **dogfood 验证**：《别打了》ch2 起草成功（drafted，4237 字，翻译机制驱动剧情、贴十二文明设定）；火山 provider 实测 truth_extract 402.5s（600s 独立超时已落 commit 96d2975）。
 
-相关：架构 spec `docs/architecture-run-state-and-viewer.md`；豆包评估 `docs/proposals/豆包评估-p0.5-p1.md`；重设计提案 `docs/proposals/小说创作全流程重设计方案.md`。
+相关：架构 spec `docs/architecture/run-state-and-viewer.md`；豆包评估 `docs/proposals/doubao-p0.5-p1-eval.md`；重设计提案 `docs/proposals/小说创作全流程重设计方案.md`。
 
 ## Phase 10A-2：后端 LLM 流式输出 + SSE 进度
 
@@ -66,7 +95,7 @@
 - `README.md` 和 `docs/quickstart.md`：10 分钟启动 Web 工作台。
 - `docs/dogfood-protocol.md`：真实写一章的测试协议。
 - 冷启动 smoke：临时 venv 安装、CLI help、`storyforge3 serve`、`/api/health`、Vite 代理验证。
-- `docs/release-setup.md` 更新 sidecar / venv fallback 描述。
+- `docs/release/release-setup.md` 更新 sidecar / venv fallback 描述。
 
 遗留：真实写章 dogfood 需要继续积累样本。
 
@@ -113,7 +142,7 @@
 - MCP tool 错误恢复建议。
 - `next_step` 字段和结构化 `DraftResult`。
 - 15 个 tool docstring 操作分层。
-- `docs/mcp-registration.md` 注册指南。
+- `docs/architecture/mcp-registration.md` 注册指南。
 
 ## Phase 7B：质量运营面板
 

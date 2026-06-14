@@ -4,7 +4,7 @@
 > 产品经理：Claude Code PM
 > 执行者：Codex
 > 前置条件：Phase 10A-1 完成（文档治理完成，覆盖率基线已记录）
-> 战略来源：`docs/project-strategy.md` Phase A-2
+> 战略来源：`docs/research/project-strategy.md` Phase A-2
 > Dogfood 基线：《别打了》第 1 章，487 tests，ruff clean
 
 ## 任务概述

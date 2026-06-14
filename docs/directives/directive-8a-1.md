@@ -476,4 +476,4 @@ PM 复盘确认：本指令编写前跳过了完整借鉴调研，Part 5 的借�
 1. **CC-Switch 归因不准确**：CC-Switch 是纯 Tauri/Rust 应用，没有 Python sidecar、PyInstaller 或外部二进制打包流程；不能作为 sidecar 架构借鉴来源。8A-1 的 sidecar-first / venv-fallback 逻辑应归类为 SF3 本阶段新写 + Tauri sidecar 模式参考。
 2. **遗漏本地成熟参考**：仓库内 `storyforge/process/manuskript/manuskript.spec` 和 `storyforge/process/novelWriter/utils/build_binary.py` 是更直接的 PyInstaller 参考，应在实际打包验证阶段补读。
 3. **待验证风险**：当前 spec 未显式配置 `datas`，后续真实打包必须检查 pydantic / FastAPI / MCP / 项目 package data 是否完整；PowerShell 脚本依赖 PATH 中的 `pyinstaller`，可考虑参考 novelWriter 改成 Python API 构建脚本。
-4. **体积权衡**：`docs/research-sf3-gap-analysis.md` 中的纯 Tauri 便携分发基线约 8MB；引入 Python sidecar 会显著增大安装包，这是“作者开箱即用”相对“开发者便携版”的明确权衡。
+4. **体积权衡**：`docs/research/sf3-gap-analysis.md` 中的纯 Tauri 便携分发基线约 8MB；引入 Python sidecar 会显著增大安装包，这是“作者开箱即用”相对“开发者便携版”的明确权衡。

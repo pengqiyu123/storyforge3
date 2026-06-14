@@ -4,7 +4,7 @@
 > 产品经理：Claude Code PM
 > 执行者：Codex
 > 前置条件：Phase 10A-2 完成（后端流式输出 + SSE 进度事件可用）
-> 战略来源：`docs/project-strategy.md` Phase A-2
+> 战略来源：`docs/research/project-strategy.md` Phase A-2
 
 ## 任务概述
 

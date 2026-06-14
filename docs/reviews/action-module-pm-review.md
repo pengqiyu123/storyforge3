@@ -1,9 +1,10 @@
 # PM 审查报告：动作模块化设计反思
 
 > 审查人：Claude Code PM
-> 审查对象：`storyforge3/docs/action-module-design-review.md`（872 行）
+> 审查对象：`storyforge3/docs/reviews/action-module-design.md`（872 行）
 > 审查日期：2026-06-11
-> 参照基线：[project-strategy.md](project-strategy.md)、[评估.md](../../评估.md)、[豆包意见.md](../../豆包意见.md)
+> 📦 **时效性（2026-06-14 审核）：历史归档。** 审查对象（动作模块化方案）已被 agent-mode ONLY 取代。保留作 PM 审查方法参考，不作为当前执行依据。
+> 参照基线：[research/project-strategy.md](research/project-strategy.md)、[评估.md](../../评估.md)、[豆包意见.md](../../豆包意见.md)
 > 当前代码状态：56 API 端点 / 14 Service Protocol / 15 MCP tools / 486 后端 tests
 
 ---
