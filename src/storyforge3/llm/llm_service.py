@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import time
 from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
@@ -72,6 +73,47 @@ class Route:
     api_format: str
     model_id: str
     verified: bool = False
+
+
+def _extract_json_object(text: str) -> str:
+    """Tolerantly extract a JSON object from an LLM response.
+
+    Models (especially Claude via relays) often wrap JSON in ```json fences or
+    add prose around it, which breaks strict ``json.loads``. This strips a single
+    code fence and, failing that, brace-matches the outermost ``{...}`` (string-
+    aware) to recover the object. Raises ``json.JSONDecodeError`` if nothing parses,
+    so callers can wrap it in LLMResponseFormatError with task context.
+    """
+    stripped = text.strip()
+    fence = re.search(r"```(?:json)?\s*\n?(.*?)\n?```", stripped, re.DOTALL | re.IGNORECASE)
+    if fence:
+        stripped = fence.group(1).strip()
+    if stripped.startswith("{") and stripped.endswith("}"):
+        return stripped
+    start = stripped.find("{")
+    if start == -1:
+        return stripped  # let json.loads raise with the original text
+    depth = 0
+    in_string = False
+    escaped = False
+    for index in range(start, len(stripped)):
+        char = stripped[index]
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return stripped[start : index + 1]
+    return stripped
 
 
 class LLMService:
@@ -246,7 +288,7 @@ class LLMService:
             }
             text = await self.generate_text(task_name, system_prompt, fallback_payload, model=model, timeout=timeout, **kwargs)
         try:
-            data = json.loads(text)
+            data = json.loads(_extract_json_object(text))
         except json.JSONDecodeError as exc:
             raise LLMResponseFormatError(f"{task_name}: invalid JSON response") from exc
         if not isinstance(data, dict):

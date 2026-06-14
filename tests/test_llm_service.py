@@ -14,9 +14,35 @@ from storyforge3.llm.llm_service import (
     ProviderUnavailableError,
     Route,
     _build_route_candidates,
+    _extract_json_object,
     build_endpoint_url,
     classify_response_error,
 )
+
+
+def test_extract_json_object_handles_plain_json() -> None:
+    assert json.loads(_extract_json_object('{"a": 1}')) == {"a": 1}
+
+
+def test_extract_json_object_strips_markdown_fence() -> None:
+    text = "```json\n{\"goal\": \"x\", \"keep\": [1, 2]}\n```"
+    assert json.loads(_extract_json_object(text)) == {"goal": "x", "keep": [1, 2]}
+
+
+def test_extract_json_object_strips_preamble_and_prose() -> None:
+    text = "好的，以下是结果：\n{\"goal\": \"x\"}\n（完）"
+    assert json.loads(_extract_json_object(text)) == {"goal": "x"}
+
+
+def test_extract_json_object_is_string_aware_for_nested_braces() -> None:
+    # A '}' inside a string must not count as a closing brace.
+    text = '前缀 {"note": "包含}大括号", "n": 1} 后缀'
+    assert json.loads(_extract_json_object(text)) == {"note": "包含}大括号", "n": 1}
+
+
+def test_extract_json_object_raises_on_no_object() -> None:
+    with pytest.raises(json.JSONDecodeError):
+        json.loads(_extract_json_object("纯文本，没有 JSON"))
 
 
 def run(coro):
