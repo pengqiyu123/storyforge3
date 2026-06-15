@@ -23,9 +23,12 @@ from storyforge3.models import (
     TruthData,
 )
 from storyforge3.services.book_service import BookService
+from storyforge3.services.chapter_discarder import ChapterDiscarder
+from storyforge3.services.chapter_reconciler import ChapterReconciler
 from storyforge3.services.daemon_service import DaemonRunResult
 from storyforge3.services.length_normalizer import LengthNormalizationResult
 from storyforge3.storage import BookStorage, StoragePaths
+from storyforge3.truth.store import TruthStore
 
 
 @pytest.fixture
@@ -314,6 +317,8 @@ def api_daemon_service() -> ApiFakeDaemonService:
 @pytest.fixture
 async def async_client(
     api_config: StoryForge3Config,
+    api_storage: BookStorage,
+    api_paths: StoragePaths,
     api_book_service: BookService,
     api_mock_llm,
     api_chapter_service: ApiFakeChapterService,
@@ -324,6 +329,7 @@ async def async_client(
 ) -> AsyncIterator[AsyncClient]:
     from storyforge3.api.deps import (
         get_book_service,
+        get_chapter_discarder,
         get_chapter_service,
         get_config,
         get_daemon_service,
@@ -337,6 +343,12 @@ async def async_client(
     app.dependency_overrides[get_book_service] = lambda: api_book_service
     app.dependency_overrides[get_llm_service] = lambda: api_mock_llm
     app.dependency_overrides[get_chapter_service] = lambda: api_chapter_service
+    app.dependency_overrides[get_chapter_discarder] = lambda: ChapterDiscarder(
+        api_storage,
+        api_paths,
+        truth_store=TruthStore(api_config.books_dir),
+        reconciler=ChapterReconciler(api_storage, api_paths),
+    )
     app.dependency_overrides[get_truth_store] = lambda: api_truth_store
     app.dependency_overrides[get_truth_extractor] = lambda: api_truth_extractor
     app.dependency_overrides[get_export_service] = lambda: api_export_service

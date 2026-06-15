@@ -113,12 +113,13 @@ class TruthDatabase:
         )
         return ranked[:limit]
 
-    def delete_chapter(self, book_id: str, chapter_no: int) -> None:
+    def delete_chapter(self, book_id: str, chapter_no: int) -> int:
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "DELETE FROM truth_entries WHERE book_id = ? AND chapter_no = ?",
                 (book_id, chapter_no),
             )
+            return int(cursor.rowcount or 0)
 
     def _init_schema(self) -> None:
         with self._connect() as conn:

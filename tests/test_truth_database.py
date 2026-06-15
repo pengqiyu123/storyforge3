@@ -152,3 +152,53 @@ def test_truth_store_load_history_returns_empty_for_missing_book(tmp_path: Path)
     store = TruthStore(str(tmp_path / "books"))
 
     assert store.load_history("missing") == []
+
+
+def test_truth_store_delete_by_chapter_only_deletes_target_rows(tmp_path: Path) -> None:
+    store = TruthStore(str(tmp_path / "books"))
+    store.save(
+        "book-a",
+        TruthData(
+            chapter_no=2,
+            source="runtime_native",
+            fact_assertions=("A2-1", "A2-2"),
+            character_updates=({"summary": "A2"},),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=("A2-4",),
+            notes=(),
+        ),
+    )
+    store.save(
+        "book-a",
+        TruthData(
+            chapter_no=3,
+            source="runtime_native",
+            fact_assertions=("A3-1",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+    store.save(
+        "book-b",
+        TruthData(
+            chapter_no=2,
+            source="runtime_native",
+            fact_assertions=("B2-1",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+
+    deleted = store.delete_by_chapter("book-a", 2)
+
+    assert deleted == 4
+    assert store.database.query_by_chapter("book-a", 2) == []
+    assert len(store.database.query_by_chapter("book-a", 3)) == 1
+    assert len(store.database.query_by_chapter("book-b", 2)) == 1

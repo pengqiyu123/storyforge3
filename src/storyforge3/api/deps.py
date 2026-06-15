@@ -13,6 +13,7 @@ from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.audit_service import AuditService
 from storyforge3.services.book_service import BookService
 from storyforge3.services.chapter_service import ChapterService
+from storyforge3.services.chapter_discarder import ChapterDiscarder
 from storyforge3.services.chapter_reconciler import ChapterReconciler
 from storyforge3.services.character_service import CharacterService
 from storyforge3.services.daemon_service import DaemonService
@@ -128,15 +129,24 @@ def get_chapter_reconciler(
     return ChapterReconciler(storage, paths)
 
 
+def get_truth_store(config: StoryForge3Config = Depends(get_config)) -> TruthStore:
+    return TruthStore(config.books_dir)
+
+
+def get_chapter_discarder(
+    storage: BookStorage = Depends(get_storage),
+    paths: StoragePaths = Depends(get_paths),
+    truth_store: TruthStore = Depends(get_truth_store),
+    reconciler: ChapterReconciler = Depends(get_chapter_reconciler),
+) -> ChapterDiscarder:
+    return ChapterDiscarder(storage, paths, truth_store=truth_store, reconciler=reconciler)
+
+
 def get_export_service(
     storage: BookStorage = Depends(get_storage),
     paths: StoragePaths = Depends(get_paths),
 ) -> ExportService:
     return ExportService(storage, paths)
-
-
-def get_truth_store(config: StoryForge3Config = Depends(get_config)) -> TruthStore:
-    return TruthStore(config.books_dir)
 
 
 def get_prompt_registry() -> PromptRegistry:

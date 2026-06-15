@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 import pytest
 
-from storyforge3.models import AuditResult, ChapterResult, ChapterStatus
+from storyforge3.models import AuditResult, ChapterResult, ChapterStatus, TruthData
+from storyforge3.truth.store import TruthStore
 
 
 @pytest.mark.asyncio
@@ -306,3 +308,77 @@ async def test_export_preview_rejects_epub_format(async_client, api_chapter_serv
 
     assert response.status_code == 400
     assert response.json()["error"]["code"] == "INVALID_PARAMETER"
+
+
+@pytest.mark.asyncio
+async def test_discard_preview_and_delete_are_scoped(async_client, api_paths, api_storage):
+    book_id = "discard-api"
+    api_storage.write_json(
+        api_paths.book_meta(book_id),
+        {
+            "book_id": book_id,
+            "title": "丢弃测试",
+            "genre": "urban",
+            "platform": "tomato",
+            "status": "active",
+            "target_chapters": 10,
+            "chapter_word_count": 2500,
+            "language": "zh",
+            "current_chapter": 2,
+            "created_at": "2026-06-15T00:00:00+00:00",
+            "updated_at": "2026-06-15T00:00:00+00:00",
+        },
+    )
+    api_storage.write_text(api_paths.chapter_file(book_id, 1), "第1章正文")
+    api_storage.write_text(api_paths.chapter_file(book_id, 2), "第2章正文")
+    api_storage.write_json(api_paths.plan_file(book_id, 2), {"chapter_no": 2})
+    pipeline = api_paths.book_dir(book_id) / "runs" / "pipeline.jsonl"
+    api_storage.write_text(
+        pipeline,
+        "\n".join(
+            [
+                json.dumps({"book_id": book_id, "chapter_no": 1, "task": "draft"}, ensure_ascii=False),
+                json.dumps({"book_id": book_id, "chapter_no": 2, "task": "draft"}, ensure_ascii=False),
+            ]
+        )
+        + "\n",
+    )
+    api_storage.write_json(api_paths.chapter_states(book_id), {f"{book_id}:0002": {"status": "drafted"}})
+    store = TruthStore(str(api_paths.books_root))
+    store.save(
+        book_id,
+        TruthData(
+            chapter_no=2,
+            source="runtime_native",
+            fact_assertions=("第2章事实",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+
+    preview = await async_client.get(f"/api/books/{book_id}/chapters/2/discard-preview")
+
+    assert preview.status_code == 200
+    preview_data = preview.json()["data"]
+    assert preview_data["truth_db_rows"] == 1
+    assert preview_data["pipeline_lines_removed"] == 1
+    assert preview_data["state_removed"] is True
+    assert "chapters/0002.md" in preview_data["deleted_files"]
+    assert api_paths.chapter_file(book_id, 2).exists()
+
+    response = await async_client.delete(f"/api/books/{book_id}/chapters/2")
+
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["truth_db_rows"] == 1
+    assert data["post_reconcile"]["next_writable_chapter_no"] == 2
+    assert not api_paths.chapter_file(book_id, 2).exists()
+    assert api_paths.chapter_file(book_id, 1).exists()
+    assert store.database.query_by_chapter(book_id, 2) == []
+    assert (api_paths.book_dir(book_id) / "_trash" / "ch0002" / "001" / "truth_db_rows.json").is_file()
+    pipeline_text = pipeline.read_text(encoding="utf-8")
+    assert '"chapter_no": 1' in pipeline_text
+    assert '"chapter_no": 2' not in pipeline_text

@@ -8,7 +8,8 @@ from pathlib import Path
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
-from storyforge3.api.deps import get_chapter_service, get_run_registry
+from storyforge3.api.deps import get_chapter_discarder, get_chapter_service, get_run_registry
+from storyforge3.api.routes.books import BookReconciliationResponse, _reconciliation_to_response
 from storyforge3.api.errors import action_not_allowed, chapter_empty, chapter_not_found, content_conflict, internal_error, invalid_parameter, state_error
 from storyforge3.api.response import ok
 from storyforge3.api.sse import PipelineEvent, make_chunk_event, make_progress_event, sse_manager
@@ -19,6 +20,7 @@ from storyforge3.export.markdown import format_markdown_chapter
 from storyforge3.export.qidian import format_qidian_chapter
 from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, PipelineRunRecord, RevisionDiff, RuleResult, RunStatus, StageResult
 from storyforge3.services.chapter_service import ChapterService
+from storyforge3.services.chapter_discarder import ChapterDiscarder, DiscardPreview, DiscardResult
 from storyforge3.services.length_normalizer import LengthNormalizationResult
 from storyforge3.services.run_registry import ACTIVE_STATUSES, RunRegistry
 from storyforge3.state.gating import allowed_actions
@@ -187,6 +189,21 @@ class RevisionDiffResponse(BaseModel):
     blocks: list[RevisionDiffBlockResponse] = Field(default_factory=list)
 
 
+class DiscardPreviewResponse(BaseModel):
+    book_id: str
+    chapter_no: int
+    deleted_files: list[str] = Field(default_factory=list)
+    rewritten_files: list[str] = Field(default_factory=list)
+    truth_db_rows: int
+    pipeline_lines_removed: int
+    state_removed: bool
+    backed_up_to: str | None = None
+
+
+class DiscardResultResponse(DiscardPreviewResponse):
+    post_reconcile: BookReconciliationResponse
+
+
 def _intent_to_response(intent: ChapterIntent) -> ChapterIntentResponse:
     return ChapterIntentResponse(
         chapter_no=intent.chapter_no,
@@ -278,6 +295,33 @@ def _diff_to_response(diff: RevisionDiff) -> RevisionDiffResponse:
         unit=diff.unit,
         summary=RevisionDiffSummaryResponse(**asdict(diff.summary)),
         blocks=[RevisionDiffBlockResponse(**asdict(block)) for block in diff.blocks],
+    )
+
+
+def _discard_preview_to_response(preview: DiscardPreview) -> DiscardPreviewResponse:
+    return DiscardPreviewResponse(
+        book_id=preview.book_id,
+        chapter_no=preview.chapter_no,
+        deleted_files=list(preview.deleted_files),
+        rewritten_files=list(preview.rewritten_files),
+        truth_db_rows=preview.truth_db_rows,
+        pipeline_lines_removed=preview.pipeline_lines_removed,
+        state_removed=preview.state_removed,
+        backed_up_to=preview.backed_up_to,
+    )
+
+
+def _discard_result_to_response(result: DiscardResult) -> DiscardResultResponse:
+    return DiscardResultResponse(
+        book_id=result.book_id,
+        chapter_no=result.chapter_no,
+        deleted_files=list(result.deleted_files),
+        rewritten_files=list(result.rewritten_files),
+        truth_db_rows=result.truth_db_rows,
+        pipeline_lines_removed=result.pipeline_lines_removed,
+        state_removed=result.state_removed,
+        backed_up_to=result.backed_up_to,
+        post_reconcile=_reconciliation_to_response(result.post_reconcile),
     )
 
 
@@ -587,6 +631,24 @@ async def get_chapter_run(
     if record is None:
         raise chapter_not_found(book_id, chapter_no)
     return ok(_run_record_to_response(record))
+
+
+@router.get("/{chapter_no}/discard-preview")
+async def discard_chapter_preview(
+    book_id: str,
+    chapter_no: int,
+    discarder: ChapterDiscarder = Depends(get_chapter_discarder),
+):
+    return ok(_discard_preview_to_response(discarder.preview(book_id, chapter_no)))
+
+
+@router.delete("/{chapter_no}")
+async def discard_chapter(
+    book_id: str,
+    chapter_no: int,
+    discarder: ChapterDiscarder = Depends(get_chapter_discarder),
+):
+    return ok(_discard_result_to_response(discarder.discard(book_id, chapter_no)))
 
 
 @router.post("/{chapter_no}/run/{run_id}/resume")
