@@ -32,6 +32,8 @@ def allowed_actions(
         return frozenset(actions)
     if chapter_status == ChapterStatus.TRUTH_COMMITTED:
         return frozenset({"export"})
-    if chapter_status in {ChapterStatus.EXPORTED, ChapterStatus.NEEDS_REVIEW}:
+    if chapter_status == ChapterStatus.NEEDS_REVIEW:
+        return frozenset({"plan", "draft", "audit"})
+    if chapter_status == ChapterStatus.EXPORTED:
         return frozenset()
     return frozenset()

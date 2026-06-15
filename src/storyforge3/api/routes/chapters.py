@@ -822,7 +822,7 @@ def _stages_from(resume_from: str | None, target_stages: list[str]) -> list[str]
         return list(target_stages)
     if resume_from not in target_stages:
         return list(target_stages)
-    return target_stages[target_stages.index(resume_from) + 1 :]
+    return target_stages[target_stages.index(resume_from) :]
 
 
 async def _guard_action(

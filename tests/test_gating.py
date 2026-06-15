@@ -20,7 +20,8 @@ from storyforge3.state.gating import allowed_actions
         (ChapterStatus.APPROVED, None, 0, False, frozenset({"truth"})),
         (ChapterStatus.TRUTH_COMMITTED, None, 0, True, frozenset({"export"})),
         (ChapterStatus.EXPORTED, None, 0, True, frozenset()),
-        (ChapterStatus.NEEDS_REVIEW, None, 0, False, frozenset()),
+        (ChapterStatus.NEEDS_REVIEW, None, 0, False, frozenset({"plan", "draft", "audit"})),
+        (ChapterStatus.NEEDS_REVIEW, RunStatus.RUNNING, 0, False, frozenset()),
     ],
 )
 def test_allowed_actions_matches_backend_gate_table(
@@ -35,3 +36,20 @@ def test_allowed_actions_matches_backend_gate_table(
 
 def test_allowed_actions_export_compat_for_approved_with_truth() -> None:
     assert allowed_actions(ChapterStatus.APPROVED, None, 0, True) == frozenset({"truth", "export"})
+
+
+@pytest.mark.parametrize(
+    ("resume_from", "expected"),
+    [
+        ("truth", ["truth", "export"]),
+        ("plan", ["plan", "draft", "audit", "revise", "approve", "truth", "export"]),
+        (None, ["plan", "draft", "audit", "revise", "approve", "truth", "export"]),
+        ("nonexistent", ["plan", "draft", "audit", "revise", "approve", "truth", "export"]),
+    ],
+)
+def test_stages_from_resumes_inclusively(resume_from: str | None, expected: list[str]) -> None:
+    from storyforge3.api.routes.chapters import _stages_from
+
+    full_stages = ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
+
+    assert _stages_from(resume_from, full_stages) == expected
