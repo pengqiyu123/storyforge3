@@ -3,6 +3,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book } from "@/api/books";
+import type { BookReconciliation } from "@/api/reconcile";
 import { BookDetailPage } from "./BookDetailPage";
 
 let bookQuery: { data: Book | null; isLoading: boolean; error: unknown } = {
@@ -21,9 +22,19 @@ let bookQuery: { data: Book | null; isLoading: boolean; error: unknown } = {
   isLoading: false,
   error: null
 };
+let reconcileQuery: { data: BookReconciliation | undefined; isLoading: boolean; error: unknown } = {
+  data: undefined,
+  isLoading: false,
+  error: null
+};
 
 vi.mock("@/hooks/useBooks", () => ({
   useBook: () => bookQuery
+}));
+
+vi.mock("@/hooks/useReconcile", () => ({
+  useReconcile: () => reconcileQuery,
+  useInvalidateReconcile: () => vi.fn()
 }));
 
 vi.mock("@/hooks/useWorld", () => ({
@@ -61,6 +72,7 @@ describe("BookDetailPage", () => {
       isLoading: false,
       error: null
     };
+    reconcileQuery = { data: undefined, isLoading: false, error: null };
   });
 
   it("renders the seven book detail tabs", () => {
@@ -98,5 +110,33 @@ describe("BookDetailPage", () => {
 
     expect(screen.queryByText("正在读取书籍...")).not.toBeInTheDocument();
     expect(screen.getByTestId("book-detail-loading")).toBeInTheDocument();
+  });
+
+  it("uses reconciliation max_chapter for displayed progress instead of book current_chapter", () => {
+    bookQuery.data = bookQuery.data ? { ...bookQuery.data, book_id: "biedale", current_chapter: 2, target_chapters: 100 } : null;
+    reconcileQuery = {
+      data: {
+        book_id: "biedale",
+        chapters: [],
+        inconsistent_count: 0,
+        max_chapter: 4
+      },
+      isLoading: false,
+      error: null
+    };
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/books/biedale"]}>
+          <Routes>
+            <Route path="/books/:id" element={<BookDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(screen.getByText("4 / 100")).toBeInTheDocument();
+    expect(screen.queryByText("2 / 100")).not.toBeInTheDocument();
   });
 });

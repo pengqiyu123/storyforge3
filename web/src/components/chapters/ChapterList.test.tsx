@@ -1,0 +1,135 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { Book } from "@/api/books";
+import type { BookReconciliation } from "@/api/reconcile";
+import { ChapterList } from "./ChapterList";
+
+let reconciliation: BookReconciliation | undefined;
+
+vi.mock("@/hooks/useReconcile", () => ({
+  useReconcile: () => ({ data: reconciliation, isLoading: false, error: null }),
+  useInvalidateReconcile: () => vi.fn()
+}));
+
+vi.mock("./ChapterPipeline", () => ({
+  ChapterPipeline: ({ chapterNo }: { chapterNo: number }) => <div>第 {chapterNo} 章详情</div>
+}));
+
+const book: Book = {
+  book_id: "biedale",
+  title: "别打了",
+  genre: "都市",
+  platform: "tomato",
+  status: "active",
+  target_chapters: 100,
+  chapter_word_count: 2500,
+  current_chapter: 2,
+  created_at: "2026-06-14T00:00:00Z",
+  updated_at: "2026-06-14T00:00:00Z"
+};
+
+describe("ChapterList", () => {
+  beforeEach(() => {
+    reconciliation = biedaleReconciliation();
+  });
+
+  it("renders real reconciled chapters, inconsistent badges, reasons, and one next-chapter indicator", () => {
+    renderList();
+
+    expect(screen.getByText("真实产物 4 章")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /第 1 章/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /第 2 章/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /第 3 章/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /第 4 章/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /第 5 章/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /第 6 章/ })).not.toBeInTheDocument();
+
+    expect(screen.getAllByText("数据不一致")).toHaveLength(2);
+    expect(screen.getByText("第 5 章")).toBeInTheDocument();
+    expect(screen.getByText("由 agent 触发生产")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /第 3 章/ }));
+    const expanded = screen.getByTestId("chapter-3-inconsistent-reasons");
+    expect(within(expanded).getByText("已导出但无状态记录")).toBeInTheDocument();
+    expect(within(expanded).getByText("已导出但无正文文件")).toBeInTheDocument();
+    expect(within(expanded).getByText("有 Truth 但无状态记录")).toBeInTheDocument();
+  });
+
+  it("shows produced-stage checks from reconciliation artifacts without status probes", () => {
+    renderList();
+
+    const chapter2 = screen.getByTestId("chapter-card-2");
+    expect(within(chapter2).getByText("规划")).toHaveAttribute("data-produced", "true");
+    expect(within(chapter2).getByText("正文")).toHaveAttribute("data-produced", "true");
+    expect(within(chapter2).getByText("Truth")).toHaveAttribute("data-produced", "true");
+    expect(within(chapter2).getByText("导出")).toHaveAttribute("data-produced", "true");
+  });
+
+  it("shows only chapter one next indicator for a book with no artifacts", () => {
+    reconciliation = {
+      book_id: "empty-book",
+      chapters: [],
+      inconsistent_count: 0,
+      max_chapter: 0
+    };
+
+    renderList({ ...book, book_id: "empty-book", current_chapter: 0 });
+
+    expect(screen.queryByTestId(/chapter-card-/)).not.toBeInTheDocument();
+    expect(screen.getByText("第 1 章")).toBeInTheDocument();
+    expect(screen.getByText("由 agent 触发生产")).toBeInTheDocument();
+  });
+});
+
+function renderList(targetBook: Book = book) {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ChapterList book={targetBook} />
+    </QueryClientProvider>
+  );
+}
+
+function biedaleReconciliation(): BookReconciliation {
+  return {
+    book_id: "biedale",
+    inconsistent_count: 2,
+    max_chapter: 4,
+    chapters: [
+      chapter(1, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "exported" }),
+      chapter(2, { has_text: true, has_plan: true, has_truth: true, has_export: false, has_state: true, state_status: "drafted" }),
+      chapter(3, {
+        has_truth: true,
+        has_export: true,
+        status: "inconsistent",
+        inconsistent_reasons: ["export_without_state", "export_without_text", "truth_without_state"]
+      }),
+      chapter(4, {
+        has_truth: true,
+        has_export: true,
+        status: "inconsistent",
+        inconsistent_reasons: ["export_without_state", "export_without_text", "truth_without_state"]
+      })
+    ]
+  };
+}
+
+function chapter(
+  chapter_no: number,
+  overrides: Partial<BookReconciliation["chapters"][number]>
+): BookReconciliation["chapters"][number] {
+  return {
+    chapter_no,
+    has_text: false,
+    has_plan: false,
+    has_truth: false,
+    has_export: false,
+    has_state: false,
+    has_run: false,
+    state_status: null,
+    status: "consistent",
+    inconsistent_reasons: [],
+    ...overrides
+  };
+}
