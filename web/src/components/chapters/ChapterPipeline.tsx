@@ -5,10 +5,14 @@ import { ChapterEditor } from "@/components/editor/ChapterEditor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LiveStage } from "@/components/chapters/LiveStage";
 import { PipelineProgress } from "@/components/chapters/PipelineProgress";
+import { RunTrack } from "@/components/chapters/RunTrack";
 import { ExportPreviewDialog } from "@/components/export/ExportPreviewDialog";
 import { useChapterPlanState, useChapterUpdateText } from "@/hooks/useChapters";
 import { usePipelineEvents } from "@/hooks/usePipelineEvents";
+import { useCancelRun, useRunRecord } from "@/hooks/useRunRecord";
+import { useRunEvents } from "@/hooks/useRunEvents";
 import { countChineseChars } from "@/lib/utils";
 
 /**
@@ -54,6 +58,8 @@ const statusLabels: Record<string, string> = {
 
 export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelineProps) {
   const persistedPlan = useChapterPlanState(bookId, chapterNo);
+  const runRecord = useRunRecord(bookId, chapterNo);
+  const cancelRun = useCancelRun(bookId, chapterNo);
   const updateText = useChapterUpdateText(bookId);
   const [activeStage, setActiveStage] = useState<string>("draft");
   const [lastEvent, setLastEvent] = useState("");
@@ -115,6 +121,8 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
     }
   });
 
+  useRunEvents(bookId, chapterNo);
+
   function startEditing() {
     setEditText(currentText);
     setEditing(true);
@@ -171,6 +179,13 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
         </div>
       </CardHeader>
       <CardContent className="space-y-6">
+        <RunTrack chapterStatus={status} run={runRecord.data ?? null} />
+        <LiveStage
+          run={runRecord.data ?? null}
+          isCancelling={cancelRun.isPending}
+          onCancel={(runId) => cancelRun.mutateAsync(runId)}
+        />
+
         {/* Stage view tabs — click to VIEW a stage; checkmark = produced output. Never a run trigger. */}
         <div className="grid grid-cols-3 gap-3 md:grid-cols-6" role="tablist" aria-label="章节阶段">
           {stages.map((stage) => {
