@@ -453,6 +453,16 @@ class LLMService:
                     f"elapsed={time.perf_counter() - request_started:.2f}s"
                 )
                 raise LLMRouteError("connection_failed", f"connection failed: {exc}", route=route) from exc
+            except httpx.RemoteProtocolError as exc:
+                self._diag(
+                    "request protocol_error "
+                    f"attempt={attempt + 1}/{attempts} format={route.api_format} "
+                    f"elapsed={time.perf_counter() - request_started:.2f}s"
+                )
+                if attempt < attempts - 1:
+                    await self._retry_sleep(attempt, jitter=0.5)
+                    continue
+                raise LLMRouteError("server_disconnected", f"server disconnected: {exc}", route=route) from exc
             self._diag(
                 "request response "
                 f"attempt={attempt + 1}/{attempts} format={route.api_format} "

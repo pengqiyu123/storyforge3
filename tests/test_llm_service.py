@@ -8,6 +8,7 @@ import pytest
 
 from storyforge3.llm.llm_service import (
     LLMRateLimitError,
+    LLMRouteError,
     LLMTimeoutError,
     LLMResponseFormatError,
     LLMService,
@@ -597,6 +598,104 @@ def test_504_retries_five_attempts_with_jittered_backoff(monkeypatch) -> None:
 
     assert len(attempts) == 5
     assert delays == [3.0, 6.0, 12.0, 24.0]
+
+
+def test_remote_protocol_error_retries_and_then_succeeds(monkeypatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 3:
+            raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+        return httpx.Response(200, json=response_text("ok"))
+
+    def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("storyforge3.llm.llm_service.random.random", lambda: 1.0)
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
+    )
+
+    assert run(service.generate_text("draft", "system", {})) == "ok"
+    assert attempts == 3
+    assert delays == [3.0, 6.0]
+
+
+def test_remote_protocol_error_exhausts_retries_as_server_disconnected(monkeypatch) -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.RemoteProtocolError("Server disconnected without sending a response.")
+
+    def sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("storyforge3.llm.llm_service.random.random", lambda: 1.0)
+    provider_config = provider(
+        cc_endpoint_auto_select=False,
+        cc_endpoint_candidates=["https://primary.test/v1"],
+        cc_base_url_raw="https://primary.test/v1",
+        cc_usage_base_url=None,
+    )
+    service = LLMService(
+        provider_config,
+        transport=httpx.MockTransport(handler),
+        sleep=sleep,
+    )
+
+    with pytest.raises(LLMRouteError) as exc_info:
+        run(
+            service._post_with_retries(
+                provider_config,
+                Route("https://primary.test/v1/responses", "openai_responses", "gpt-5.5"),
+                {"task_name": "draft", "system_prompt": "system", "user_text": "", "model": "gpt-5.5"},
+                timeout=None,
+            )
+        )
+
+    assert exc_info.value.probe_status == "server_disconnected"
+    assert attempts == 5
+    assert delays == [3.0, 6.0, 12.0, 24.0]
+
+
+def test_timeout_exception_still_does_not_retry() -> None:
+    attempts = 0
+    delays: list[float] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ReadTimeout("slow provider", request=request)
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda delay: delays.append(delay),
+    )
+
+    with pytest.raises(LLMTimeoutError):
+        run(service.generate_text("draft", "system", {}))
+
+    assert attempts == 1
+    assert delays == []
 
 
 def test_route_candidates_keep_blank_model_for_relay_default() -> None:
