@@ -1,0 +1,37 @@
+from __future__ import annotations
+
+import pytest
+
+from storyforge3.models import ChapterStatus, RunStatus
+from storyforge3.state.gating import allowed_actions
+
+
+@pytest.mark.parametrize(
+    ("chapter_status", "run_status", "audit_blocking", "truth_exists", "expected"),
+    [
+        (ChapterStatus.EMPTY, RunStatus.RUNNING, 0, False, frozenset()),
+        (ChapterStatus.AUDITED, RunStatus.WAITING_FOR_HUMAN, 0, False, frozenset()),
+        (ChapterStatus.EMPTY, None, 0, False, frozenset({"plan"})),
+        (ChapterStatus.PLANNED, None, 0, False, frozenset({"draft", "plan"})),
+        (ChapterStatus.DRAFTED, None, 0, False, frozenset({"audit"})),
+        (ChapterStatus.AUDITED, None, 0, False, frozenset({"approve", "revise"})),
+        (ChapterStatus.AUDITED, None, 2, False, frozenset({"revise"})),
+        (ChapterStatus.REVISED, None, 0, False, frozenset({"audit"})),
+        (ChapterStatus.APPROVED, None, 0, False, frozenset({"truth"})),
+        (ChapterStatus.TRUTH_COMMITTED, None, 0, True, frozenset({"export"})),
+        (ChapterStatus.EXPORTED, None, 0, True, frozenset()),
+        (ChapterStatus.NEEDS_REVIEW, None, 0, False, frozenset()),
+    ],
+)
+def test_allowed_actions_matches_backend_gate_table(
+    chapter_status: ChapterStatus,
+    run_status: RunStatus | None,
+    audit_blocking: int,
+    truth_exists: bool,
+    expected: frozenset[str],
+) -> None:
+    assert allowed_actions(chapter_status, run_status, audit_blocking, truth_exists) == expected
+
+
+def test_allowed_actions_export_compat_for_approved_with_truth() -> None:
+    assert allowed_actions(ChapterStatus.APPROVED, None, 0, True) == frozenset({"truth", "export"})

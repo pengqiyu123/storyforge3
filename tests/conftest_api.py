@@ -69,13 +69,16 @@ class ApiFakeChapterService:
         self.update_empty = False
         self.update_conflict = False
         self.status_result: ChapterResult | None = None
+        self.audit_result: AuditResult | None = None
         self.last_revision_mode: str | None = None
         self.last_update_text: tuple[str, int, str, str | None] | None = None
+        self.approve_calls = 0
+        self.export_calls = 0
 
     async def audit(self, _book_id: str, chapter_no: int) -> AuditResult:
         if self.audit_not_found:
             raise FileNotFoundError("chapter not found")
-        return AuditResult(
+        return self.audit_result or AuditResult(
             chapter_no=chapter_no,
             passed=True,
             blocking_issues=(),
@@ -163,9 +166,11 @@ class ApiFakeChapterService:
         )
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
-        return ChapterResult(book_id, chapter_no, ChapterStatus.APPROVED, f"第{chapter_no}章", "正文")
+        self.approve_calls += 1
+        return ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "正文")
 
     async def export(self, _book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
+        self.export_calls += 1
         return Path("exports") / f"chapter-{chapter_no:04d}.{fmt}"
 
     async def run_full_pipeline(self, book_id: str, chapter_no: int, *, human_confirm=None) -> ChapterResult:

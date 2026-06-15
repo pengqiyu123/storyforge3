@@ -4,7 +4,7 @@ import hashlib
 
 import pytest
 
-from storyforge3.models import ChapterResult, ChapterStatus
+from storyforge3.models import AuditResult, ChapterResult, ChapterStatus
 
 
 @pytest.mark.asyncio
@@ -176,6 +176,64 @@ async def test_revise_response_includes_revision_diff(async_client):
     assert data["revision_diff"]["unit"] == "paragraph"
     assert data["revision_diff"]["summary"]["changed_blocks"] == 1
     assert data["revision_diff"]["blocks"][0]["kind"] == "replace"
+
+
+@pytest.mark.asyncio
+async def test_approve_with_blocking_audit_returns_action_not_allowed(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        7,
+        ChapterStatus.AUDITED,
+        "第7章",
+        "正文",
+        audit=AuditResult(7, False, ("below_min_word_count",), (), (), ()),
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/7/approve")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert body["error"]["current_status"] == "audited"
+    assert body["error"]["required"] == ["approve"]
+    assert api_chapter_service.approve_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_export_before_truth_committed_returns_action_not_allowed(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        8,
+        ChapterStatus.APPROVED,
+        "第8章",
+        "正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/8/export", json={"fmt": "md"})
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert body["error"]["current_status"] == "approved"
+    assert body["error"]["required"] == ["export"]
+    assert api_chapter_service.export_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_export_after_truth_committed_delegates_to_service(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        9,
+        ChapterStatus.TRUTH_COMMITTED,
+        "第9章",
+        "正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/9/export", json={"fmt": "md"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["path"].endswith("chapter-0009.md")
+    assert api_chapter_service.export_calls == 1
 
 
 @pytest.mark.asyncio
