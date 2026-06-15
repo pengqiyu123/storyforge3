@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { chaptersApi, type ChapterIntent, type ChapterResult } from "@/api/chapters";
+import { reconcileKey } from "@/hooks/useReconcile";
 
 export function chapterStatusKey(bookId: string, chapterNo: number) {
   return ["chapter-status", bookId, chapterNo] as const;
@@ -63,6 +64,7 @@ function useChapterMutation<TArgs extends unknown[], TResult>(
     onSuccess: (_result, variables) => {
       queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, variables.chapterNo) });
       queryClient.invalidateQueries({ queryKey: chapterPlanKey(bookId, variables.chapterNo) });
+      queryClient.invalidateQueries({ queryKey: reconcileKey(bookId) });
     }
   });
 }
@@ -91,7 +93,10 @@ export function useChapterUpdateText(bookId: string) {
         text,
         expected_hash: expectedHash
       }),
-    onSuccess: (_result, variables) => queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, variables.chapterNo) })
+    onSuccess: (_result, variables) => {
+      queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, variables.chapterNo) });
+      queryClient.invalidateQueries({ queryKey: reconcileKey(bookId) });
+    }
   });
 }
 

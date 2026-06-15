@@ -11,6 +11,7 @@ import { ChapterList } from "@/components/chapters/ChapterList";
 import { SnapshotPanel } from "@/components/snapshots/SnapshotPanel";
 import { TruthPanel } from "@/components/truth/TruthPanel";
 import { useBook } from "@/hooks/useBooks";
+import { useReconcile } from "@/hooks/useReconcile";
 import { useBuildWorld, useUpdateWorld, useWorld } from "@/hooks/useWorld";
 import { useCharacterRelationships, useCharacters, useCreateCharacter } from "@/hooks/useCharacters";
 import { usePlanVolumes, useVolumes } from "@/hooks/useVolumes";
@@ -29,6 +30,8 @@ export function BookDetailPage() {
   const volumes = useVolumes(id);
   const planVolumes = usePlanVolumes(id);
   const book = bookQuery.data;
+  const reconcile = useReconcile(book?.book_id);
+  const progressChapter = reconcile.data?.max_chapter ?? book?.current_chapter ?? 0;
 
   if (bookQuery.isLoading) {
     return <BookDetailLoading />;
@@ -69,13 +72,13 @@ export function BookDetailPage() {
             <div className="mb-2 flex justify-between text-sm text-zinc-400">
               <span>章节进度</span>
               <span>
-                {book.current_chapter} / {book.target_chapters}
+                {progressChapter} / {book.target_chapters}
               </span>
             </div>
             <div className="h-2 rounded-full bg-zinc-900">
               <div
                 className="h-full rounded-full bg-amber-300"
-                style={{ width: `${Math.min(100, Math.round((book.current_chapter / Math.max(1, book.target_chapters)) * 100))}%` }}
+                style={{ width: `${Math.min(100, Math.round((progressChapter / Math.max(1, book.target_chapters)) * 100))}%` }}
               />
             </div>
           </div>
@@ -92,7 +95,7 @@ export function BookDetailPage() {
           <TabsTrigger value="snapshots">快照</TabsTrigger>
         </TabsList>
         <TabsContent value="overview">
-          <OverviewTab book={book} />
+          <OverviewTab book={book} progressChapter={progressChapter} />
         </TabsContent>
         <TabsContent value="world">
           <WorldEditor
@@ -163,10 +166,10 @@ function BookDetailLoading() {
   );
 }
 
-function OverviewTab({ book }: { book: { current_chapter: number; target_chapters: number; chapter_word_count: number } }) {
+function OverviewTab({ book, progressChapter }: { book: { target_chapters: number; chapter_word_count: number }; progressChapter: number }) {
   return (
     <div className="grid gap-5 lg:grid-cols-3">
-      <OverviewCard icon={BookOpen} label="当前章节" value={`${book.current_chapter} / ${book.target_chapters}`} />
+      <OverviewCard icon={BookOpen} label="当前章节" value={`${progressChapter} / ${book.target_chapters} 章`} />
       <OverviewCard icon={Sparkles} label="单章字数" value={`${book.chapter_word_count.toLocaleString("zh-CN")} 字`} />
       <OverviewCard icon={GitBranch} label="下一步" value="进入章节管线" />
     </div>

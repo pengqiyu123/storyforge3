@@ -3,17 +3,27 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Book } from "@/api/books";
 import type { BookReconciliation } from "@/api/reconcile";
+import type { VolumeOutline } from "@/api/volumes";
 import { ChapterList } from "./ChapterList";
 
 let reconciliation: BookReconciliation | undefined;
+let volumes: VolumeOutline[] | undefined;
 
 vi.mock("@/hooks/useReconcile", () => ({
   useReconcile: () => ({ data: reconciliation, isLoading: false, error: null }),
   useInvalidateReconcile: () => vi.fn()
 }));
 
+vi.mock("@/hooks/useVolumes", () => ({
+  useVolumes: () => ({ data: volumes, isLoading: false, error: null })
+}));
+
 vi.mock("./ChapterPipeline", () => ({
-  ChapterPipeline: ({ chapterNo }: { chapterNo: number }) => <div>第 {chapterNo} 章详情</div>
+  ChapterPipeline: ({ chapterNo, result }: { chapterNo: number; result?: { status?: string } | null }) => (
+    <div>
+      第 {chapterNo} 章详情 {result?.status}
+    </div>
+  )
 }));
 
 const book: Book = {
@@ -32,6 +42,7 @@ const book: Book = {
 describe("ChapterList", () => {
   beforeEach(() => {
     reconciliation = biedaleReconciliation();
+    volumes = undefined;
   });
 
   it("renders real reconciled chapters, inconsistent badges, reasons, and one next-chapter indicator", () => {
@@ -54,6 +65,7 @@ describe("ChapterList", () => {
     expect(within(expanded).getByText("已导出但无状态记录")).toBeInTheDocument();
     expect(within(expanded).getByText("已导出但无正文文件")).toBeInTheDocument();
     expect(within(expanded).getByText("有 Truth 但无状态记录")).toBeInTheDocument();
+    expect(screen.getByText(/第 3 章详情 needs_review/)).toBeInTheDocument();
   });
 
   it("shows produced-stage checks from reconciliation artifacts without status probes", () => {
@@ -80,6 +92,41 @@ describe("ChapterList", () => {
     expect(screen.getByText("第 1 章")).toBeInTheDocument();
     expect(screen.getByText("由 agent 触发生产")).toBeInTheDocument();
   });
+
+  it("does not render all-empty gap chapters returned inside the reconciliation range", () => {
+    reconciliation = {
+      book_id: "gap-book",
+      inconsistent_count: 0,
+      max_chapter: 4,
+      chapters: [
+        chapter(1, { has_text: true }),
+        chapter(2, {}),
+        chapter(4, { has_truth: true })
+      ]
+    };
+
+    renderList({ ...book, book_id: "gap-book" });
+
+    expect(screen.getByTestId("chapter-card-1")).toBeInTheDocument();
+    expect(screen.queryByTestId("chapter-card-2")).not.toBeInTheDocument();
+    expect(screen.getByTestId("chapter-card-4")).toBeInTheDocument();
+    expect(screen.getByText("第 5 章")).toBeInTheDocument();
+  });
+
+  it("groups chapters by existing volume outlines", () => {
+    volumes = [
+      volume(1, "误入前线", 2),
+      volume(2, "翻译官上岗", 2)
+    ];
+
+    renderList();
+
+    expect(screen.getByText("第 1 卷：误入前线")).toBeInTheDocument();
+    expect(screen.getByText("第 2 卷：翻译官上岗")).toBeInTheDocument();
+    const secondVolume = screen.getByTestId("chapter-volume-2");
+    expect(within(secondVolume).getByRole("button", { name: /第 3 章/ })).toBeInTheDocument();
+    expect(within(secondVolume).getByRole("button", { name: /第 4 章/ })).toBeInTheDocument();
+  });
 });
 
 function renderList(targetBook: Book = book) {
@@ -98,7 +145,7 @@ function biedaleReconciliation(): BookReconciliation {
     max_chapter: 4,
     chapters: [
       chapter(1, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "exported" }),
-      chapter(2, { has_text: true, has_plan: true, has_truth: true, has_export: false, has_state: true, state_status: "drafted" }),
+      chapter(2, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "drafted" }),
       chapter(3, {
         has_truth: true,
         has_export: true,
@@ -131,5 +178,17 @@ function chapter(
     status: "consistent",
     inconsistent_reasons: [],
     ...overrides
+  };
+}
+
+function volume(volume_no: number, title: string, chapter_count: number): VolumeOutline {
+  return {
+    book_id: "biedale",
+    volume_no,
+    title,
+    chapter_count,
+    synopsis: "",
+    key_scenes: [],
+    rhythm_curve: []
   };
 }
