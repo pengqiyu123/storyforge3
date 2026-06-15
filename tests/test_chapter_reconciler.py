@@ -9,7 +9,7 @@ from storyforge3.state.machine import ChapterStateMachine
 from storyforge3.storage import BookStorage, StoragePaths
 
 
-def test_reconciler_marks_consistent_and_ghost_chapters(tmp_path: Path) -> None:
+def test_reconciler_marks_biedale_like_ghost_chapters_as_blocking(tmp_path: Path) -> None:
     paths = StoragePaths(tmp_path)
     storage = BookStorage(paths.books_root)
     root = paths.book_dir("book")
@@ -28,23 +28,34 @@ def test_reconciler_marks_consistent_and_ghost_chapters(tmp_path: Path) -> None:
     _write_truth(root, 3)
     _write_export(root, 3)
     _write_legacy_run(root, 3)
+    _write_truth(root, 4)
+    _write_export(root, 4)
 
     result = ChapterReconciler(storage, paths).reconcile("book")
 
-    assert result.max_chapter == 3
-    assert result.inconsistent_count == 1
+    assert result.max_chapter == 4
+    assert result.inconsistent_count == 2
+    assert result.valid_chapter_count == 2
+    assert result.highest_contiguous_chapter == 2
+    assert result.next_writable_chapter_no == 3
+    assert result.has_blocking_inconsistency is True
     by_chapter = {item.chapter_no: item for item in result.chapters}
     assert by_chapter[1].status == "consistent"
+    assert by_chapter[1].validity == "valid"
     assert by_chapter[1].has_run is True
     assert by_chapter[2].status == "consistent"
+    assert by_chapter[2].validity == "valid"
     assert by_chapter[2].has_export is False
     assert by_chapter[2].state_status == "approved"
     assert by_chapter[3].status == "inconsistent"
+    assert by_chapter[3].validity == "orphan"
     assert by_chapter[3].inconsistent_reasons == (
         "export_without_state",
         "export_without_text",
         "truth_without_state",
     )
+    assert by_chapter[4].status == "inconsistent"
+    assert by_chapter[4].validity == "orphan"
 
 
 def test_reconciler_detects_each_inconsistent_rule(tmp_path: Path) -> None:
@@ -65,6 +76,28 @@ def test_reconciler_detects_each_inconsistent_rule(tmp_path: Path) -> None:
     assert by_chapter[1].inconsistent_reasons == ("export_without_state", "export_without_text")
     assert by_chapter[2].status == "consistent"
     assert by_chapter[3].inconsistent_reasons == ("orphan_state",)
+
+
+def test_reconciler_derives_validity_and_next_writable_without_blockers(tmp_path: Path) -> None:
+    paths = StoragePaths(tmp_path)
+    storage = BookStorage(paths.books_root)
+    root = paths.book_dir("book")
+    _write_text(root, 1)
+    _write_plan(root, 2)
+    _write_legacy_run(root, 2)
+    _write_text(root, 4)
+
+    result = ChapterReconciler(storage, paths).reconcile("book")
+
+    assert result.valid_chapter_count == 2
+    assert result.highest_contiguous_chapter == 1
+    assert result.next_writable_chapter_no == 2
+    assert result.has_blocking_inconsistency is False
+    by_chapter = {item.chapter_no: item for item in result.chapters}
+    assert by_chapter[1].validity == "valid"
+    assert by_chapter[2].validity == "partial"
+    assert by_chapter[3].validity == "empty"
+    assert by_chapter[4].validity == "valid"
 
 
 def test_reconciler_ignores_export_temp_and_sidecar_files(tmp_path: Path) -> None:
@@ -91,6 +124,10 @@ def test_reconciler_returns_empty_for_book_without_artifacts(tmp_path: Path) -> 
     assert result.book_id == "missing"
     assert result.max_chapter == 0
     assert result.inconsistent_count == 0
+    assert result.valid_chapter_count == 0
+    assert result.highest_contiguous_chapter == 0
+    assert result.next_writable_chapter_no == 1
+    assert result.has_blocking_inconsistency is False
     assert result.chapters == ()
 
 

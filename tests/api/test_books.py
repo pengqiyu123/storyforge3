@@ -123,10 +123,17 @@ def test_reconcile_book_reports_ghost_chapters(client, config):
     data = resp.json()["data"]
     assert data["book_id"] == "book"
     assert data["inconsistent_count"] == 1
+    assert data["valid_chapter_count"] == 2
+    assert data["highest_contiguous_chapter"] == 2
+    assert data["next_writable_chapter_no"] == 3
+    assert data["has_blocking_inconsistency"] is True
     by_chapter = {item["chapter_no"]: item for item in data["chapters"]}
     assert by_chapter[1]["status"] == "consistent"
+    assert by_chapter[1]["validity"] == "valid"
     assert by_chapter[2]["status"] == "consistent"
+    assert by_chapter[2]["validity"] == "valid"
     assert by_chapter[3]["status"] == "inconsistent"
+    assert by_chapter[3]["validity"] == "orphan"
     assert by_chapter[3]["inconsistent_reasons"] == [
         "export_without_state",
         "export_without_text",

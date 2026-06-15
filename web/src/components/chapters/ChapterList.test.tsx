@@ -48,7 +48,8 @@ describe("ChapterList", () => {
   it("renders real reconciled chapters, inconsistent badges, reasons, and one next-chapter indicator", () => {
     renderList();
 
-    expect(screen.getByText("真实产物 4 章")).toBeInTheDocument();
+    expect(screen.getByText("已发现章节产物 4 章 · 最高第 4 章 · ⚠ 2 章数据不一致")).toBeInTheDocument();
+    expect(screen.queryByText("真实产物 4 章")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /第 1 章/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /第 2 章/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /第 3 章/ })).toBeInTheDocument();
@@ -57,8 +58,10 @@ describe("ChapterList", () => {
     expect(screen.queryByRole("button", { name: /第 6 章/ })).not.toBeInTheDocument();
 
     expect(screen.getAllByText("数据不一致")).toHaveLength(2);
-    expect(screen.getByText("第 5 章")).toBeInTheDocument();
-    expect(screen.getByText("由 agent 触发生产")).toBeInTheDocument();
+    expect(screen.getAllByText("孤儿产物：有 Truth/导出但无正文")).toHaveLength(2);
+    expect(screen.getByText("⚠ 存在数据不一致（第 3、4 章），请先检查后再继续生产")).toBeInTheDocument();
+    expect(screen.queryByText("下一章：第 5 章")).not.toBeInTheDocument();
+    expect(screen.queryByText("由 agent 触发生产")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /第 3 章/ }));
     const expanded = screen.getByTestId("chapter-3-inconsistent-reasons");
@@ -83,14 +86,18 @@ describe("ChapterList", () => {
       book_id: "empty-book",
       chapters: [],
       inconsistent_count: 0,
-      max_chapter: 0
+      max_chapter: 0,
+      valid_chapter_count: 0,
+      highest_contiguous_chapter: 0,
+      next_writable_chapter_no: 1,
+      has_blocking_inconsistency: false
     };
 
     renderList({ ...book, book_id: "empty-book", current_chapter: 0 });
 
     expect(screen.queryByTestId(/chapter-card-/)).not.toBeInTheDocument();
-    expect(screen.getByText("第 1 章")).toBeInTheDocument();
-    expect(screen.getByText("由 agent 触发生产")).toBeInTheDocument();
+    expect(screen.getByText("下一章：第 1 章")).toBeInTheDocument();
+    expect(screen.getByText("尚未产生章节产物，由 agent/API 启动生产")).toBeInTheDocument();
   });
 
   it("does not render all-empty gap chapters returned inside the reconciliation range", () => {
@@ -98,10 +105,14 @@ describe("ChapterList", () => {
       book_id: "gap-book",
       inconsistent_count: 0,
       max_chapter: 4,
+      valid_chapter_count: 2,
+      highest_contiguous_chapter: 1,
+      next_writable_chapter_no: 2,
+      has_blocking_inconsistency: false,
       chapters: [
-        chapter(1, { has_text: true }),
-        chapter(2, {}),
-        chapter(4, { has_truth: true })
+        chapter(1, { has_text: true, validity: "valid" }),
+        chapter(2, { validity: "empty" }),
+        chapter(4, { has_text: true, validity: "valid" })
       ]
     };
 
@@ -110,7 +121,26 @@ describe("ChapterList", () => {
     expect(screen.getByTestId("chapter-card-1")).toBeInTheDocument();
     expect(screen.queryByTestId("chapter-card-2")).not.toBeInTheDocument();
     expect(screen.getByTestId("chapter-card-4")).toBeInTheDocument();
-    expect(screen.getByText("第 5 章")).toBeInTheDocument();
+    expect(screen.getByText("下一章：第 2 章")).toBeInTheDocument();
+  });
+
+  it("marks partial chapters without treating them as blocking inconsistencies", () => {
+    reconciliation = {
+      book_id: "partial-book",
+      inconsistent_count: 0,
+      max_chapter: 2,
+      valid_chapter_count: 1,
+      highest_contiguous_chapter: 1,
+      next_writable_chapter_no: 2,
+      has_blocking_inconsistency: false,
+      chapters: [chapter(1, { has_text: true, validity: "valid" }), chapter(2, { has_plan: true, validity: "partial" })]
+    };
+
+    renderList({ ...book, book_id: "partial-book" });
+
+    expect(screen.getByTestId("chapter-card-2")).toBeInTheDocument();
+    expect(screen.getByText("部分产物")).toBeInTheDocument();
+    expect(screen.getByText("下一章：第 2 章")).toBeInTheDocument();
   });
 
   it("groups chapters by existing volume outlines", () => {
@@ -143,18 +173,24 @@ function biedaleReconciliation(): BookReconciliation {
     book_id: "biedale",
     inconsistent_count: 2,
     max_chapter: 4,
+    valid_chapter_count: 2,
+    highest_contiguous_chapter: 2,
+    next_writable_chapter_no: 3,
+    has_blocking_inconsistency: true,
     chapters: [
-      chapter(1, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "exported" }),
-      chapter(2, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "drafted" }),
+      chapter(1, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "exported", validity: "valid" }),
+      chapter(2, { has_text: true, has_plan: true, has_truth: true, has_export: true, has_state: true, state_status: "drafted", validity: "valid" }),
       chapter(3, {
         has_truth: true,
         has_export: true,
+        validity: "orphan",
         status: "inconsistent",
         inconsistent_reasons: ["export_without_state", "export_without_text", "truth_without_state"]
       }),
       chapter(4, {
         has_truth: true,
         has_export: true,
+        validity: "orphan",
         status: "inconsistent",
         inconsistent_reasons: ["export_without_state", "export_without_text", "truth_without_state"]
       })
@@ -176,6 +212,7 @@ function chapter(
     has_run: false,
     state_status: null,
     status: "consistent",
+    validity: "empty",
     inconsistent_reasons: [],
     ...overrides
   };

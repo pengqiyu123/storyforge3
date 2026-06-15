@@ -25,11 +25,16 @@ describe("reconcileApi", () => {
                 has_run: false,
                 state_status: null,
                 status: "inconsistent",
+                validity: "orphan",
                 inconsistent_reasons: ["export_without_state", "export_without_text", "truth_without_state"]
               }
             ],
             inconsistent_count: 1,
-            max_chapter: 3
+            max_chapter: 3,
+            valid_chapter_count: 2,
+            highest_contiguous_chapter: 2,
+            next_writable_chapter_no: 3,
+            has_blocking_inconsistency: true
           },
           error: null
         })
@@ -41,7 +46,11 @@ describe("reconcileApi", () => {
       book_id: "biedale",
       inconsistent_count: 1,
       max_chapter: 3,
-      chapters: [expect.objectContaining({ chapter_no: 3, status: "inconsistent" })]
+      valid_chapter_count: 2,
+      highest_contiguous_chapter: 2,
+      next_writable_chapter_no: 3,
+      has_blocking_inconsistency: true,
+      chapters: [expect.objectContaining({ chapter_no: 3, status: "inconsistent", validity: "orphan" })]
     });
     expect(fetchMock).toHaveBeenCalledWith("/api/books/biedale/reconcile", expect.any(Object));
   });
