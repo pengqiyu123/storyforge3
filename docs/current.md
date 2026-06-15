@@ -25,6 +25,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 | **P0.5（2026-06-13/14）** | SSE named-event 修复、status 200+empty、分段流式正文、draft→DRAFTED 状态推进、章节页纯查看(Run Viewer)、火山路由 fix、CCSwitch 供应商面板、CI 三连修复 | **完成** |
 | **P1-3（2026-06-15）** | `allowed_actions()` 纯函数 + 后端 guard（7 端点）+ 409 ACTION_NOT_ALLOWED + 参数化测试 | **完成** |
 | **P-DISCARD-1（2026-06-15）** | 章节 discard 原语（5 层备份→删除→reconcile）+ API preview/DELETE + 幂等 | **完成** |
+| **P-FIX-1（2026-06-15）** | `get_status()` 填充 truth + APPROVED 状态 truth 文件 fallback → 修复 export 门禁误拦 | **完成** |
+| **P-FIX-2（2026-06-15）** | `_stages_from()` 改 inclusive resume + NEEDS_REVIEW 门禁补全 `{"plan","draft","audit"}` | **完成** |
 
 ## P1 闭环声明
 
@@ -44,7 +46,7 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前 |
 |----|------|
-| 后端测试 | **589 passed**（P-DISCARD-1 后；+23 新测试） |
+| 后端测试 | **597 passed**（P-FIX-1/2 后；+8 新测试） |
 | 前端测试 | **111 passed**（P-IMP-3b 后；含 validity 徽标 + 阻断指示器 + Run Viewer） |
 | Rust 测试 | 5 既有基线；本机无 cargo，需 CI 验证 |
 | Python lint | `ruff check .` clean |
@@ -57,12 +59,15 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 2. **引擎工作已收官**：P1-3 是最后一项引擎特性。P-IMP-2 / P-IMP-4 / Phase 10B / 10C 全 DEFER，直到 dogfood 暴露**真实阻塞**才动。
 3. **P-DISCARD-1 并行完成**：章节 discard 原语已就绪，作 dogfood "写错可安全丢弃重来"的保险。
 4. **ch3/4 幽灵已清理**：PM 执行 discard + P-DISCARD-1 固化；reconcile 干净 ch2 状态（max=2/valid=2/inconsistent=0/next_writable=3）。
+5. **P-FIX-1/2 修复闭环**：truth_exists 门禁误判（Bug A）+ resume inclusive（Bug B）+ NEEDS_REVIEW 门禁补全，已提交 push。
 
 > 详见 `docs/architecture/run-state-and-viewer.md`（架构 spec）与 `docs/proposals/doubao-p0.5-p1-eval.md`（豆包的 P1 三步建议）。
 
-## 已知边界（P1 待解）
+## 已知边界
 
 - 审计/修订/批准/导出的**详细结果**在 UI 还看不到（这些产物未做"可加载持久化"，agent 跑完结果只回到 API 调用方）。规划/起草不受影响。
-- `POST /run` 仍同步长请求（挂几分钟）；P1 改异步返 run_id。
 - SSE 仅最近 100 条内存回放；P1 改 RunRecord 为真相源。
 - 桌面 Tauri `build.rs` 在 CI 仍失败（独立 follow-up）。
+- `ChapterStatus.SETTLED` 孤儿枚举值（无转换规则、无门禁覆盖，可安全删除）。
+- Spec §6 命名与实际 action 名不一致（`run-full`/`re-plan`/`truth-extract`/`re-audit`），功能等价，P2 文档级。
+- Export hash 校验未实现（spec 强制门禁要求，当前 export 不检查内容 hash）。

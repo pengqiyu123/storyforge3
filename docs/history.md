@@ -3,6 +3,24 @@
 > 更新时间：2026-06-15
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
 
+## P-FIX-1 + P-FIX-2：门禁修复 + Pipeline Resume 修复（2026-06-15）
+
+状态：完成。后端 597 passed（+8 vs P-DISCARD-1 的 589）/ ruff clean。
+
+**P-FIX-1 truth_exists 门禁修复**（commit `35532bc`）：
+
+- **`get_status()` 填充 truth**（`chapter_service.py:266-268`）：TRUTH_COMMITTED/EXPORTED 状态时从 `truth_store.load()` 加载持久化 truth 数据到 `ChapterResult.truth` 字段。
+- **APPROVED 状态 truth 文件 fallback**（`chapters.py:855-858`）：`_gate_state()` 在 APPROVED 且 `_truth_exists()` 返回 False 时，额外检查 `truth_store.load()` 是否有持久化 truth 文件，有则允许 export。
+- **修复根因**：此前 `get_status()` 不填充 truth → `_truth_exists()` 永远 False → APPROVED 状态下 export 被 409 误拦。当前因 `_advance_approve_state` 双跳（AUDITED→APPROVED→TRUTH_COMMITTED）暂不触发，但门禁逻辑有隐患。
+- **测试**：`test_chapter_service.py` 2 个（truth_committed 加载 truth / approved 不加载 truth）+ `test_api_chapters.py` APPROVED+persisted_truth 可 export。
+
+**P-FIX-2 Pipeline Resume + NEEDS_REVIEW 门禁**（commit `37f7c0c`）：
+
+- **`_stages_from()` 改 inclusive resume**（`chapters.py:825`）：移除 `+1`，resume 从失败阶段本身重新开始（`resume_from="truth"` → `["truth","export"]`），不再跳过失败阶段。
+- **NEEDS_REVIEW 门禁补全**（`gating.py:35-36`）：允许 `{"plan","draft","audit"}`，运行中仍全禁。手动编辑后不再卡死。
+- **修复根因**：此前 `_stages_from` 跳过失败阶段 → truth 失败后 resume 直接跑 export → 必然再失败。
+- **测试**：`test_gating.py` 4 组参数化（inclusive resume）+ 2 组（NEEDS_REVIEW 含 RUNNING 仍禁）+ export compat。
+
 ## P1-3 + P-DISCARD-1：门禁统一 + 章节 discard 原语 → P1 全部闭环（2026-06-15）
 
 状态：完成。后端 589 passed（+23 vs P-IMP-3b 的 566）/ 前端 111 passed / ruff clean。
