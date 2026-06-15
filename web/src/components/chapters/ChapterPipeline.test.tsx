@@ -4,9 +4,12 @@ import type { ChangeEvent } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ChapterPipeline, paragraphIndicesToRanges } from "./ChapterPipeline";
 import type { ChapterIntent } from "@/api/chapters";
+import type { RunRecord } from "@/api/runs";
 
 const planState = vi.hoisted(() => ({ data: null as ChapterIntent | null }));
+const runRecordState = vi.hoisted(() => ({ data: null as RunRecord | null }));
 const updateMutateAsync = vi.fn();
+const cancelMutateAsync = vi.fn();
 const pipelineEventState = vi.hoisted(() => ({
   current: undefined as
     | ((event: {
@@ -29,6 +32,15 @@ vi.mock("@/hooks/usePipelineEvents", () => ({
   usePipelineEvents: (_bookId?: string, _chapterNo?: number, onEvent?: typeof pipelineEventState.current) => {
     pipelineEventState.current = onEvent;
   }
+}));
+
+vi.mock("@/hooks/useRunRecord", () => ({
+  useRunRecord: () => runRecordState,
+  useCancelRun: () => ({ mutateAsync: cancelMutateAsync, isPending: false })
+}));
+
+vi.mock("@/hooks/useRunEvents", () => ({
+  useRunEvents: vi.fn()
 }));
 
 vi.mock("@/components/editor/ChapterEditor", () => ({
@@ -77,7 +89,9 @@ function renderPipeline(status: string, text = "") {
 describe("ChapterPipeline (view-only Run Viewer)", () => {
   afterEach(() => {
     planState.data = null;
+    runRecordState.data = null;
     updateMutateAsync.mockReset();
+    cancelMutateAsync.mockReset();
     pipelineEventState.current = undefined;
   });
 
@@ -110,6 +124,52 @@ describe("ChapterPipeline (view-only Run Viewer)", () => {
       actPipelineEvent({ type: "pipeline:start", book_id: "lurenjia", chapter_no: 1, stage: "draft", message: "开始起草" });
     });
     expect(screen.getByTestId("pipeline-progress")).toBeInTheDocument();
+  });
+
+  it("shows the run viewer above existing view tabs without run trigger actions", () => {
+    runRecordState.data = createRunRecord({
+      status: "running",
+      current_stage: "draft",
+      stage_results: {
+        plan: {
+          stage: "plan",
+          status: "completed",
+          started_at: "2026-06-15T01:00:00Z",
+          finished_at: "2026-06-15T01:00:01Z"
+        },
+        draft: {
+          stage: "draft",
+          status: "running",
+          started_at: "2026-06-15T01:00:02Z"
+        }
+      },
+      live: {
+        stage: "draft",
+        progress: { completed: 1, total: 3 },
+        streamText: "林默推开门。"
+      }
+    });
+
+    renderPipeline("planned", "");
+
+    expect(screen.getByTestId("run-track")).toBeInTheDocument();
+    expect(screen.getByTestId("live-stage")).toBeInTheDocument();
+    expect(screen.getByText("RUNNING")).toBeInTheDocument();
+    expect(screen.getByText("由 agent 驱动")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /规划/ })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /导出/ })).toBeInTheDocument();
+    expect(screen.queryByText("运行全流程")).not.toBeInTheDocument();
+    expect(screen.queryByText("运行下一阶段")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "取消" })).toBeInTheDocument();
+  });
+
+  it("hides cancel when the recovered run is terminal", () => {
+    runRecordState.data = createRunRecord({ status: "completed", current_stage: null });
+
+    renderPipeline("exported", "完成。");
+
+    expect(screen.getByTestId("live-stage")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消" })).not.toBeInTheDocument();
   });
 
   it("streams draft text from llm:chunk events into the draft view", () => {
@@ -164,4 +224,24 @@ function actPipelineEvent(event: {
     throw new Error("pipeline event callback not registered");
   }
   pipelineEventState.current(event);
+}
+
+function createRunRecord(overrides: Partial<RunRecord> = {}): RunRecord {
+  return {
+    run_id: "run-1",
+    book_id: "lurenjia",
+    chapter_no: 1,
+    mode: "full",
+    target_stages: ["plan", "draft", "audit", "revise", "approve", "truth", "export"],
+    status: "pending",
+    current_stage: null,
+    started_at: "2026-06-15T01:00:00Z",
+    updated_at: "2026-06-15T01:00:00Z",
+    stage_results: {},
+    llm_calls: [],
+    error_code: null,
+    error_message: null,
+    resume_from: null,
+    ...overrides
+  };
 }
