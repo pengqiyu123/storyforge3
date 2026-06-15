@@ -75,10 +75,10 @@ class ApiFakeChapterService:
         self.approve_calls = 0
         self.export_calls = 0
 
-    async def audit(self, _book_id: str, chapter_no: int) -> AuditResult:
+    async def audit(self, book_id: str, chapter_no: int) -> AuditResult:
         if self.audit_not_found:
             raise FileNotFoundError("chapter not found")
-        return self.audit_result or AuditResult(
+        audit = self.audit_result or AuditResult(
             chapter_no=chapter_no,
             passed=True,
             blocking_issues=(),
@@ -86,6 +86,9 @@ class ApiFakeChapterService:
             info=("机械规则通过",),
             rule_results=(),
         )
+        text = self.status_result.text if self.status_result is not None else "正文"
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.AUDITED, f"第{chapter_no}章", text, audit=audit)
+        return audit
 
     async def normalize_length(
         self,
@@ -102,7 +105,7 @@ class ApiFakeChapterService:
         if mode == "bad":
             raise ValueError("invalid revision mode: bad")
         self.last_revision_mode = mode
-        return ChapterResult(
+        result = ChapterResult(
             book_id,
             chapter_no,
             ChapterStatus.REVISED,
@@ -120,6 +123,8 @@ class ApiFakeChapterService:
                 blocks=(RevisionDiffBlock(kind="replace", before_text="修订前正文", after_text="修订正文"),),
             ),
         )
+        self.status_result = result
+        return result
 
     async def update_text(self, book_id: str, chapter_no: int, text: str, *, expected_hash: str | None = None) -> ChapterResult:
         self.last_update_text = (book_id, chapter_no, text, expected_hash)
@@ -136,21 +141,27 @@ class ApiFakeChapterService:
     async def get_status(self, _book_id: str, _chapter_no: int) -> ChapterResult | None:
         return self.status_result
 
-    async def plan(self, _book_id: str, chapter_no: int) -> ChapterIntent:
+    async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
         return ChapterIntent(chapter_no=chapter_no, goal="推进主线")
 
     async def draft(
         self,
-        _book_id: str,
-        _chapter_no: int,
+        book_id: str,
+        chapter_no: int,
         intent: ChapterIntent | None = None,
         *,
         on_chunk_progress=None,
+        on_chunk=None,
     ) -> str:
         del intent
         if on_chunk_progress is not None:
             await on_chunk_progress(1, 2)
-        return "林默停在副楼门口。"
+        if on_chunk is not None:
+            await on_chunk("林默停在副楼门口。", 1, 2)
+        text = "林默停在副楼门口。"
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.DRAFTED, f"第{chapter_no}章", text)
+        return text
 
     async def run_llm_audit(self, _book_id: str, _chapter_no: int, _text: str) -> LLMAuditResult:
         return LLMAuditResult(
@@ -167,10 +178,13 @@ class ApiFakeChapterService:
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
         self.approve_calls += 1
-        return ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "正文")
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "正文")
+        self.status_result = result
+        return result
 
-    async def export(self, _book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
+    async def export(self, book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
         self.export_calls += 1
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "正文")
         return Path("exports") / f"chapter-{chapter_no:04d}.{fmt}"
 
     async def run_full_pipeline(self, book_id: str, chapter_no: int, *, human_confirm=None) -> ChapterResult:

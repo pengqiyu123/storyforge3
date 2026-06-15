@@ -51,6 +51,7 @@ def test_get_chapter_plan_returns_intent(client):
 
 
 def test_chapter_audit_before_draft_returns_404(client, mock_chapter_service):
+    mock_chapter_service.status_result = ChapterResult("chapter-api", 1, ChapterStatus.DRAFTED, "第1章", "正文")
     mock_chapter_service.raise_audit_not_found = True
     resp = client.post("/api/books/chapter-api/chapters/1/audit")
     assert resp.status_code == 404
@@ -58,6 +59,8 @@ def test_chapter_audit_before_draft_returns_404(client, mock_chapter_service):
 
 
 def test_chapter_audit_llm_and_normalize(client):
+    client.post("/api/books/chapter-api/chapters/2/plan")
+    client.post("/api/books/chapter-api/chapters/2/draft")
     audit = client.post("/api/books/chapter-api/chapters/2/audit")
     assert audit.status_code == 200
     assert audit.json()["data"]["passed"] is True
@@ -84,6 +87,10 @@ def test_chapter_audit_llm_and_normalize(client):
 
 def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_service):
     book_id = "chapter-api-run"
+    client.post(f"/api/books/{book_id}/chapters/3/plan")
+    client.post(f"/api/books/{book_id}/chapters/3/draft")
+    client.post(f"/api/books/{book_id}/chapters/3/audit")
+
     revised = client.post(f"/api/books/{book_id}/chapters/3/revise", json={"mode": "polish"})
     assert revised.status_code == 200
     assert revised.json()["data"]["status"] == "revised"
@@ -91,21 +98,26 @@ def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_servi
     assert revised.json()["data"]["revision_diff"]["blocks"][0]["kind"] == "replace"
     assert mock_chapter_service.last_revision_mode == "polish"
 
+    audited = client.post(f"/api/books/{book_id}/chapters/3/audit")
+    assert audited.status_code == 200
+
     approved = client.post(f"/api/books/{book_id}/chapters/3/approve")
     assert approved.status_code == 200
-    assert approved.json()["data"]["status"] == "exported"
+    assert approved.json()["data"]["status"] == "truth_committed"
 
     exported = client.post(f"/api/books/{book_id}/chapters/3/export", json={"fmt": "md"})
     assert exported.status_code == 200
     assert exported.json()["data"]["path"].endswith("chapter-0003.md")
     assert mock_chapter_service.last_export_format == "md"
 
-    run = client.post(f"/api/books/{book_id}/chapters/3/run")
+    run_chapter = 4
+    mock_chapter_service.status_result = None
+    run = client.post(f"/api/books/{book_id}/chapters/{run_chapter}/run")
     assert run.status_code == 200
     run_id = run.json()["data"]["run_id"]
     assert run_id
 
-    run_record = _wait_for_run_status(client, book_id, 3, {"completed"})
+    run_record = _wait_for_run_status(client, book_id, run_chapter, {"completed"})
     assert run_record["run_id"] == run_id
     assert run_record["target_stages"] == ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
     assert run_record["stage_results"]["plan"]["status"] == "completed"
@@ -274,6 +286,8 @@ def test_events_endpoint_replays_llm_progress_on_draft(client):
     book_id = "chapter-api-events"
     chapter_no = 6
 
+    planned = client.post(f"/api/books/{book_id}/chapters/{chapter_no}/plan")
+    assert planned.status_code == 200
     draft = client.post(f"/api/books/{book_id}/chapters/{chapter_no}/draft")
     assert draft.status_code == 200
 

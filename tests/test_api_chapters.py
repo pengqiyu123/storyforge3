@@ -9,6 +9,9 @@ from storyforge3.models import AuditResult, ChapterResult, ChapterStatus
 
 @pytest.mark.asyncio
 async def test_audit_returns_result(async_client):
+    await async_client.post("/api/books/chapter-api/chapters/1/plan")
+    await async_client.post("/api/books/chapter-api/chapters/1/draft")
+
     response = await async_client.post("/api/books/chapter-api/chapters/1/audit")
 
     assert response.status_code == 200
@@ -20,6 +23,13 @@ async def test_audit_returns_result(async_client):
 
 @pytest.mark.asyncio
 async def test_audit_chapter_not_found(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        99,
+        ChapterStatus.DRAFTED,
+        "第99章",
+        "正文",
+    )
     api_chapter_service.audit_not_found = True
 
     response = await async_client.post("/api/books/chapter-api/chapters/99/audit")
@@ -161,6 +171,10 @@ async def test_update_text_endpoint_maps_conflict(async_client, api_chapter_serv
 
 @pytest.mark.asyncio
 async def test_revise_invalid_mode(async_client):
+    await async_client.post("/api/books/chapter-api/chapters/1/plan")
+    await async_client.post("/api/books/chapter-api/chapters/1/draft")
+    await async_client.post("/api/books/chapter-api/chapters/1/audit")
+
     response = await async_client.post("/api/books/chapter-api/chapters/1/revise", json={"mode": "bad"})
 
     assert response.status_code == 400
@@ -169,6 +183,10 @@ async def test_revise_invalid_mode(async_client):
 
 @pytest.mark.asyncio
 async def test_revise_response_includes_revision_diff(async_client):
+    await async_client.post("/api/books/chapter-api/chapters/1/plan")
+    await async_client.post("/api/books/chapter-api/chapters/1/draft")
+    await async_client.post("/api/books/chapter-api/chapters/1/audit")
+
     response = await async_client.post("/api/books/chapter-api/chapters/1/revise", json={"mode": "polish"})
 
     assert response.status_code == 200
@@ -234,6 +252,25 @@ async def test_export_after_truth_committed_delegates_to_service(async_client, a
     assert response.status_code == 200
     assert response.json()["data"]["path"].endswith("chapter-0009.md")
     assert api_chapter_service.export_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_run_full_pipeline_respects_initial_gate(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        10,
+        ChapterStatus.DRAFTED,
+        "第10章",
+        "正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/10/run")
+
+    assert response.status_code == 409
+    body = response.json()
+    assert body["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert body["error"]["current_status"] == "drafted"
+    assert body["error"]["required"] == ["plan"]
 
 
 @pytest.mark.asyncio

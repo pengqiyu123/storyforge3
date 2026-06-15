@@ -10,6 +10,7 @@ class ApiError(Exception):
     status: int
     code: str
     message: str
+    detail: dict | None = None
 
 
 def book_not_found(book_id: str) -> ApiError:
@@ -42,6 +43,15 @@ def state_conflict(message: str) -> ApiError:
 
 def state_error(message: str) -> ApiError:
     return ApiError(status=409, code="STATE_ERROR", message=message)
+
+
+def action_not_allowed(message: str, *, current_status: str, required: list[str]) -> ApiError:
+    return ApiError(
+        status=409,
+        code="ACTION_NOT_ALLOWED",
+        message=message,
+        detail={"current_status": current_status, "required": required},
+    )
 
 
 def internal_error(message: str) -> ApiError:

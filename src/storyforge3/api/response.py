@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from pydantic import BaseModel
 
@@ -10,6 +10,9 @@ from storyforge3.api.errors import ApiError
 class ErrorDetail(BaseModel):
     code: str
     message: str
+    current_status: str | None = None
+    required: list[str] | None = None
+    detail: dict[str, Any] | None = None
 
 
 T = TypeVar("T")
@@ -26,8 +29,15 @@ def ok(data: T) -> ApiResponse[T]:
 
 
 def err(error: ApiError) -> ApiResponse[None]:
+    detail = error.detail or {}
     return ApiResponse[None](
         ok=False,
         data=None,
-        error=ErrorDetail(code=error.code, message=error.message),
+        error=ErrorDetail(
+            code=error.code,
+            message=error.message,
+            current_status=detail.get("current_status"),
+            required=detail.get("required"),
+            detail=detail.get("detail"),
+        ),
     )

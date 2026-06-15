@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
 from storyforge3.api.deps import get_chapter_service, get_run_registry
-from storyforge3.api.errors import chapter_empty, chapter_not_found, content_conflict, internal_error, invalid_parameter, state_error
+from storyforge3.api.errors import action_not_allowed, chapter_empty, chapter_not_found, content_conflict, internal_error, invalid_parameter, state_error
 from storyforge3.api.response import ok
 from storyforge3.api.sse import PipelineEvent, make_chunk_event, make_progress_event, sse_manager
 from storyforge3.audit.chinese_text import count_chinese_chars
@@ -17,10 +17,11 @@ from storyforge3.audit.llm_auditor import LLMAuditIssue, LLMAuditResult
 from storyforge3.export.formatter import PlatformFormatter
 from storyforge3.export.markdown import format_markdown_chapter
 from storyforge3.export.qidian import format_qidian_chapter
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, PipelineRunRecord, RevisionDiff, RuleResult, StageResult
+from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, PipelineRunRecord, RevisionDiff, RuleResult, RunStatus, StageResult
 from storyforge3.services.chapter_service import ChapterService
 from storyforge3.services.length_normalizer import LengthNormalizationResult
-from storyforge3.services.run_registry import RunRegistry
+from storyforge3.services.run_registry import ACTIVE_STATUSES, RunRegistry
+from storyforge3.state.gating import allowed_actions
 from storyforge3.state.machine import InvalidTransitionError
 from storyforge3.truth.extractor import TruthExtractionError
 
@@ -377,7 +378,9 @@ async def plan_chapter(
     book_id: str,
     chapter_no: int,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "plan", service, registry, required=["plan"])
     intent = await service.plan(book_id, chapter_no)
     return ok(_intent_to_response(intent))
 
@@ -400,7 +403,9 @@ async def draft_chapter(
     chapter_no: int,
     req: DraftRequest | None = None,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "draft", service, registry, required=["draft"])
     await _publish_start(book_id, chapter_no, "draft", f"开始第 {chapter_no} 章草稿")
     try:
         text = await service.draft(
@@ -426,7 +431,9 @@ async def audit_chapter(
     book_id: str,
     chapter_no: int,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "audit", service, registry, required=["audit"])
     try:
         audit = await service.audit(book_id, chapter_no)
     except FileNotFoundError as exc:
@@ -469,7 +476,9 @@ async def revise_chapter(
     chapter_no: int,
     req: ReviseRequest | None = None,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "revise", service, registry, required=["revise"])
     await _publish_start(book_id, chapter_no, "revise", f"开始第 {chapter_no} 章修订")
     try:
         result = await service.revise(book_id, chapter_no, (req or ReviseRequest()).mode)
@@ -514,7 +523,9 @@ async def approve_chapter(
     book_id: str,
     chapter_no: int,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "approve", service, registry, required=["approve"])
     result = await service.approve(book_id, chapter_no)
     return ok(_result_to_response(result))
 
@@ -525,7 +536,9 @@ async def export_chapter(
     chapter_no: int,
     req: ExportRequest | None = None,
     service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "export", service, registry, required=["export"])
     try:
         path = await service.export(book_id, chapter_no, (req or ExportRequest()).fmt)
     except ValueError as exc:
@@ -556,6 +569,7 @@ async def run_full_pipeline(
     service: ChapterService = Depends(get_chapter_service),
     registry: RunRegistry = Depends(get_run_registry),
 ):
+    await _guard_action(book_id, chapter_no, "plan", service, registry, required=["plan"])
     target_stages = ["plan", "draft", "audit", "revise", "approve", "truth", "export"]
     record = registry.start(book_id, chapter_no, mode="full", target_stages=target_stages)
     task = asyncio.create_task(_run_full_pipeline_background(record.run_id, book_id, chapter_no, service, registry))
@@ -747,6 +761,80 @@ def _stages_from(resume_from: str | None, target_stages: list[str]) -> list[str]
     if resume_from not in target_stages:
         return list(target_stages)
     return target_stages[target_stages.index(resume_from) + 1 :]
+
+
+async def _guard_action(
+    book_id: str,
+    chapter_no: int,
+    action: str,
+    service: ChapterService,
+    registry: RunRegistry,
+    *,
+    required: list[str],
+) -> None:
+    state = await _gate_state(book_id, chapter_no, service, registry)
+    if action in state["allowed"]:
+        return
+    message = f"当前状态 {state['chapter_status'].value} 不允许执行 {action}，需要 {'/'.join(required)}。"
+    raise action_not_allowed(message, current_status=state["chapter_status"].value, required=required)
+
+
+async def _gate_state(
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService,
+    registry: RunRegistry,
+) -> dict:
+    get_status = getattr(service, "get_status", None)
+    result = await get_status(book_id, chapter_no) if get_status is not None else None
+    chapter_status = _status_from_result(result)
+    audit_blocking = _audit_blocking_count(result, service)
+    truth_exists = _truth_exists(result)
+    run_status = _current_run_status(registry, book_id, chapter_no)
+    return {
+        "chapter_status": chapter_status,
+        "allowed": allowed_actions(
+            chapter_status,
+            run_status,
+            audit_blocking,
+            truth_exists,
+        ),
+    }
+
+
+def _status_from_result(result: ChapterResult | None) -> ChapterStatus:
+    if result is None:
+        return ChapterStatus.EMPTY
+    status = result.status
+    if isinstance(status, ChapterStatus):
+        return status
+    if hasattr(status, "value"):
+        return ChapterStatus(str(getattr(status, "value")))
+    return ChapterStatus(str(status))
+
+
+def _audit_blocking_count(result: ChapterResult | None, service: ChapterService) -> int:
+    if result is None or result.audit is None:
+        if result is None or _status_from_result(result) != ChapterStatus.AUDITED or not result.text.strip():
+            return 0
+        audit_runner = getattr(service, "audit_runner", None)
+        if audit_runner is None:
+            return 0
+        return len(audit_runner.run_audit(result.chapter_no, result.text).blocking_issues)
+    return len(result.audit.blocking_issues)
+
+
+def _truth_exists(result: ChapterResult | None) -> bool:
+    if result is None:
+        return False
+    return result.truth is not None or _status_from_result(result) in {ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED}
+
+
+def _current_run_status(registry: RunRegistry, book_id: str, chapter_no: int) -> RunStatus | None:
+    record = registry.get_current(book_id, chapter_no)
+    if record is None or record.status not in ACTIVE_STATUSES:
+        return None
+    return record.status
 
 
 def _summarize_intent(intent: ChapterIntent) -> dict:

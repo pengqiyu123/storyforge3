@@ -128,9 +128,10 @@ class FakeChapterService:
         self.status_result: ChapterResult | None = None
         self.last_run_id: str | None = None
 
-    async def plan(self, _book_id: str, chapter_no: int) -> ChapterIntent:
+    async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
         if self.raise_run_transition:
             raise InvalidTransitionError("invalid transition drafted -> planned")
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
         return ChapterIntent(
             chapter_no=chapter_no,
             goal="推进主线",
@@ -162,10 +163,10 @@ class FakeChapterService:
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.DRAFTED, f"第{chapter_no}章", text)
         return text
 
-    async def audit(self, _book_id: str, chapter_no: int) -> AuditResult:
+    async def audit(self, book_id: str, chapter_no: int) -> AuditResult:
         if self.raise_audit_not_found:
             raise FileNotFoundError("chapter not found")
-        return AuditResult(
+        audit = AuditResult(
             chapter_no=chapter_no,
             passed=True,
             blocking_issues=(),
@@ -182,6 +183,9 @@ class FakeChapterService:
                 ),
             ),
         )
+        text = self.status_result.text if self.status_result is not None else "正文"
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.AUDITED, f"第{chapter_no}章", text, audit=audit)
+        return audit
 
     async def run_llm_audit(self, _book_id: str, _chapter_no: int, _text: str) -> LLMAuditResult:
         return LLMAuditResult(
@@ -214,7 +218,7 @@ class FakeChapterService:
 
     async def revise(self, book_id: str, chapter_no: int, mode: str = "auto") -> ChapterResult:
         self.last_revision_mode = mode
-        return ChapterResult(
+        result = ChapterResult(
             book_id,
             chapter_no,
             ChapterStatus.REVISED,
@@ -232,6 +236,8 @@ class FakeChapterService:
                 blocks=(RevisionDiffBlock(kind="replace", before_text="修订前正文", after_text="修订正文"),),
             ),
         )
+        self.status_result = result
+        return result
 
     async def update_text(self, book_id: str, chapter_no: int, text: str, *, expected_hash: str | None = None) -> ChapterResult:
         self.last_update_text = (book_id, chapter_no, text, expected_hash)
@@ -246,10 +252,13 @@ class FakeChapterService:
         return result
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
-        return ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "已确认正文")
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "已确认正文")
+        self.status_result = result
+        return result
 
-    async def export(self, _book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
+    async def export(self, book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
         self.last_export_format = fmt
+        self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "已确认正文")
         return Path("exports") / f"chapter-{chapter_no:04d}.{fmt}"
 
     async def get_status(self, _book_id: str, _chapter_no: int) -> ChapterResult | None:

@@ -34,7 +34,10 @@ app.add_middleware(
 
 @app.exception_handler(ApiError)
 async def api_error_handler(_request: Request, exc: ApiError) -> JSONResponse:
-    return JSONResponse(status_code=exc.status, content=err(exc).model_dump())
+    payload = err(exc).model_dump()
+    if payload["error"] is not None:
+        payload["error"] = {key: value for key, value in payload["error"].items() if value is not None}
+    return JSONResponse(status_code=exc.status, content=payload)
 
 
 app.include_router(health_router, prefix="/api")
