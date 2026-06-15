@@ -119,7 +119,11 @@ describe("BookDetailPage", () => {
         book_id: "biedale",
         chapters: [],
         inconsistent_count: 0,
-        max_chapter: 4
+        max_chapter: 4,
+        valid_chapter_count: 2,
+        highest_contiguous_chapter: 2,
+        next_writable_chapter_no: 3,
+        has_blocking_inconsistency: true
       },
       isLoading: false,
       error: null

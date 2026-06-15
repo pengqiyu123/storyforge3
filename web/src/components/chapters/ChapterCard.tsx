@@ -43,6 +43,16 @@ const statusClass: Record<string, string> = {
   inconsistent: "border-amber-300 bg-amber-300 text-zinc-950"
 };
 
+const validityLabels: Record<string, string> = {
+  orphan: "孤儿产物：有 Truth/导出但无正文",
+  partial: "部分产物"
+};
+
+const validityClass: Record<string, string> = {
+  orphan: "border-amber-300/30 bg-amber-300/10 text-amber-100",
+  partial: "border-sky-300/30 bg-sky-300/10 text-sky-200"
+};
+
 const artifactStages = [
   { key: "plan", label: "规划", produced: (chapter: ChapterConsistency) => chapter.has_plan },
   { key: "text", label: "正文", produced: (chapter: ChapterConsistency) => chapter.has_text },
@@ -80,10 +90,13 @@ export function ChapterCard({ bookId, chapter }: ChapterCardProps) {
             })}
           </div>
         </div>
-        <Badge className={cn("shrink-0", statusClass[status])}>
-          {status === "inconsistent" ? <AlertTriangle className="h-3.5 w-3.5" /> : null}
-          {statusLabels[status] ?? status}
-        </Badge>
+        <div className="flex shrink-0 flex-wrap justify-end gap-2">
+          {validityBadge(chapter.validity)}
+          <Badge className={cn(statusClass[status])}>
+            {status === "inconsistent" ? <AlertTriangle className="h-3.5 w-3.5" /> : null}
+            {statusLabels[status] ?? status}
+          </Badge>
+        </div>
       </button>
       {open ? (
         <CardContent className="space-y-4">
@@ -105,6 +118,14 @@ export function ChapterCard({ bookId, chapter }: ChapterCardProps) {
       ) : null}
     </Card>
   );
+}
+
+function validityBadge(validity: string) {
+  const label = validityLabels[validity];
+  if (!label) {
+    return null;
+  }
+  return <Badge className={cn(validityClass[validity])}>{label}</Badge>;
 }
 
 function resolvedStatus(chapter: ChapterConsistency): string {

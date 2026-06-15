@@ -13,7 +13,10 @@ export function ChapterList({ book }: { book: Book }) {
   const reconciliation = reconcile.data;
   const chapters = (reconciliation?.chapters ?? []).filter(hasAnyArtifact);
   const maxChapter = reconciliation?.max_chapter ?? 0;
-  const nextChapter = maxChapter + 1;
+  const nextWritableChapter = reconciliation?.next_writable_chapter_no ?? maxChapter + 1;
+  const blockingChapterNos = (reconciliation?.chapters ?? [])
+    .filter((chapter) => chapter.status === "inconsistent")
+    .map((chapter) => chapter.chapter_no);
   const groups = buildChapterGroups(chapters, volumes.data);
 
   if (reconcile.isLoading) {
@@ -31,13 +34,19 @@ export function ChapterList({ book }: { book: Book }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-zinc-800 bg-zinc-950/50 p-4 text-sm">
-        <span className="font-medium text-zinc-200">真实产物 {maxChapter} 章</span>
-        {reconciliation?.inconsistent_count ? <span className="text-amber-200">数据不一致 {reconciliation.inconsistent_count} 章</span> : null}
+        <span className="font-medium text-zinc-200">
+          已发现章节产物 {chapters.length} 章 · 最高第 {maxChapter} 章
+          {reconciliation?.has_blocking_inconsistency ? ` · ⚠ ${reconciliation.inconsistent_count} 章数据不一致` : ""}
+        </span>
       </div>
       {groups.length
         ? groups.map((group) => <ChapterGroup key={group.key} bookId={book.book_id} group={group} />)
         : chapters.map((chapter) => <ChapterCard key={chapter.chapter_no} bookId={book.book_id} chapter={chapter} />)}
-      <NextChapterIndicator chapterNo={nextChapter} />
+      <NextChapterIndicator
+        chapterNo={nextWritableChapter}
+        hasBlockingInconsistency={Boolean(reconciliation?.has_blocking_inconsistency)}
+        blockingChapterNos={blockingChapterNos}
+      />
     </div>
   );
 }
@@ -52,12 +61,29 @@ function ChapterListLoading() {
   );
 }
 
-function NextChapterIndicator({ chapterNo }: { chapterNo: number }) {
+function NextChapterIndicator({
+  chapterNo,
+  hasBlockingInconsistency,
+  blockingChapterNos
+}: {
+  chapterNo: number;
+  hasBlockingInconsistency: boolean;
+  blockingChapterNos: number[];
+}) {
+  if (hasBlockingInconsistency) {
+    return (
+      <Card className="border-amber-300/30 bg-amber-300/10 p-4">
+        <p className="text-sm font-medium text-amber-100">
+          ⚠ 存在数据不一致（{formatChapterNos(blockingChapterNos)}），请先检查后再继续生产
+        </p>
+      </Card>
+    );
+  }
   return (
     <Card className="border-dashed border-zinc-700 bg-zinc-950/40 p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm font-medium text-zinc-200">第 {chapterNo} 章</p>
-        <p className="text-sm text-zinc-500">由 agent 触发生产</p>
+        <p className="text-sm font-medium text-zinc-200">下一章：第 {chapterNo} 章</p>
+        <p className="text-sm text-zinc-500">尚未产生章节产物，由 agent/API 启动生产</p>
       </div>
     </Card>
   );
@@ -129,4 +155,11 @@ function buildChapterGroups(chapters: ChapterConsistency[], volumes?: VolumeOutl
 
 function hasAnyArtifact(chapter: ChapterConsistency): boolean {
   return chapter.has_text || chapter.has_plan || chapter.has_truth || chapter.has_export || chapter.has_state || chapter.has_run;
+}
+
+function formatChapterNos(chapterNos: number[]): string {
+  if (!chapterNos.length) {
+    return "未知章节";
+  }
+  return `第 ${chapterNos.sort((left, right) => left - right).join("、")} 章`;
 }

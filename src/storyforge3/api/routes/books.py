@@ -52,6 +52,7 @@ class ChapterConsistencyResponse(BaseModel):
     has_run: bool
     state_status: str | None
     status: str
+    validity: str
     inconsistent_reasons: list[str]
 
 
@@ -60,6 +61,10 @@ class BookReconciliationResponse(BaseModel):
     chapters: list[ChapterConsistencyResponse]
     inconsistent_count: int
     max_chapter: int
+    valid_chapter_count: int
+    highest_contiguous_chapter: int
+    next_writable_chapter_no: int
+    has_blocking_inconsistency: bool
 
 
 def _meta_to_response(meta: BookMeta) -> BookResponse:
@@ -90,6 +95,7 @@ def _consistency_to_response(item: ChapterConsistency) -> ChapterConsistencyResp
         has_run=item.has_run,
         state_status=item.state_status,
         status=item.status,
+        validity=item.validity,
         inconsistent_reasons=list(item.inconsistent_reasons),
     )
 
@@ -100,6 +106,10 @@ def _reconciliation_to_response(result: BookReconciliation) -> BookReconciliatio
         chapters=[_consistency_to_response(item) for item in result.chapters],
         inconsistent_count=result.inconsistent_count,
         max_chapter=result.max_chapter,
+        valid_chapter_count=result.valid_chapter_count,
+        highest_contiguous_chapter=result.highest_contiguous_chapter,
+        next_writable_chapter_no=result.next_writable_chapter_no,
+        has_blocking_inconsistency=result.has_blocking_inconsistency,
     )
 
 

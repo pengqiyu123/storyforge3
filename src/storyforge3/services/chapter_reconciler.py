@@ -19,6 +19,7 @@ class ChapterConsistency:
     has_run: bool
     state_status: str | None
     status: str
+    validity: str
     inconsistent_reasons: tuple[str, ...]
 
 
@@ -28,6 +29,10 @@ class BookReconciliation:
     chapters: tuple[ChapterConsistency, ...]
     inconsistent_count: int
     max_chapter: int
+    valid_chapter_count: int
+    highest_contiguous_chapter: int
+    next_writable_chapter_no: int
+    has_blocking_inconsistency: bool
 
 
 class ChapterReconciler:
@@ -47,7 +52,16 @@ class ChapterReconciler:
         run_chapters = self._new_run_chapters(book_id) | self._legacy_run_chapters(book_id)
         all_chapters = text_chapters | plan_chapters | truth_chapters | export_chapters | set(state_statuses) | run_chapters
         if not all_chapters:
-            return BookReconciliation(book_id=book_id, chapters=(), inconsistent_count=0, max_chapter=0)
+            return BookReconciliation(
+                book_id=book_id,
+                chapters=(),
+                inconsistent_count=0,
+                max_chapter=0,
+                valid_chapter_count=0,
+                highest_contiguous_chapter=0,
+                next_writable_chapter_no=1,
+                has_blocking_inconsistency=False,
+            )
 
         max_chapter = max(all_chapters)
         chapters = tuple(
@@ -62,11 +76,17 @@ class ChapterReconciler:
             )
             for chapter_no in range(1, max_chapter + 1)
         )
+        inconsistent_chapters = [chapter.chapter_no for chapter in chapters if chapter.status == "inconsistent"]
+        highest_contiguous_chapter = _highest_contiguous_chapter(chapters)
         return BookReconciliation(
             book_id=book_id,
             chapters=chapters,
-            inconsistent_count=sum(1 for chapter in chapters if chapter.status == "inconsistent"),
+            inconsistent_count=len(inconsistent_chapters),
             max_chapter=max_chapter,
+            valid_chapter_count=sum(1 for chapter in chapters if chapter.validity == "valid"),
+            highest_contiguous_chapter=highest_contiguous_chapter,
+            next_writable_chapter_no=min(inconsistent_chapters) if inconsistent_chapters else highest_contiguous_chapter + 1,
+            has_blocking_inconsistency=bool(inconsistent_chapters),
         )
 
     def _chapter_consistency(
@@ -102,6 +122,14 @@ class ChapterReconciler:
             has_run=chapter_no in run_chapters,
             state_status=state_status,
             status="inconsistent" if reasons else "consistent",
+            validity=_validity(
+                has_text=has_text,
+                has_plan=chapter_no in plan_chapters,
+                has_truth=has_truth,
+                has_export=has_export,
+                has_run=chapter_no in run_chapters,
+                state_status=state_status,
+            ),
             inconsistent_reasons=reasons,
         )
 
@@ -180,6 +208,33 @@ def _inconsistent_reasons(
     return tuple(reasons)
 
 
+def _validity(
+    *,
+    has_text: bool,
+    has_plan: bool,
+    has_truth: bool,
+    has_export: bool,
+    has_run: bool,
+    state_status: str | None,
+) -> str:
+    if has_text or (state_status or "").lower() in _VALID_STATE_STATUSES:
+        return "valid"
+    if has_truth or has_export:
+        return "orphan"
+    if has_plan or has_run:
+        return "partial"
+    return "empty"
+
+
+def _highest_contiguous_chapter(chapters: tuple[ChapterConsistency, ...]) -> int:
+    highest = 0
+    for chapter in sorted(chapters, key=lambda item: item.chapter_no):
+        if chapter.chapter_no != highest + 1 or chapter.validity != "valid":
+            break
+        highest = chapter.chapter_no
+    return highest
+
+
 def _numbered_files(root: Path, pattern: str) -> set[int]:
     if not root.exists():
         return set()
@@ -251,3 +306,5 @@ _ORPHAN_STATE_STATUSES = {
     ChapterStatus.TRUTH_COMMITTED.value,
     ChapterStatus.EXPORTED.value,
 }
+
+_VALID_STATE_STATUSES = _ORPHAN_STATE_STATUSES

@@ -1,6 +1,7 @@
 import { api } from "./client";
 
 export type ChapterConsistencyStatus = "consistent" | "inconsistent" | string;
+export type ChapterValidity = "valid" | "partial" | "orphan" | "empty" | string;
 
 export interface ChapterConsistency {
   chapter_no: number;
@@ -12,6 +13,7 @@ export interface ChapterConsistency {
   has_run: boolean;
   state_status: string | null;
   status: ChapterConsistencyStatus;
+  validity: ChapterValidity;
   inconsistent_reasons: string[];
 }
 
@@ -20,6 +22,10 @@ export interface BookReconciliation {
   chapters: ChapterConsistency[];
   inconsistent_count: number;
   max_chapter: number;
+  valid_chapter_count: number;
+  highest_contiguous_chapter: number;
+  next_writable_chapter_no: number;
+  has_blocking_inconsistency: boolean;
 }
 
 const reasonLabels: Record<string, string> = {
