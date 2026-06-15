@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from storyforge3.config import StoryForge3Config
-from storyforge3.models import ChapterIntent, ChapterStatus
+from storyforge3.models import ChapterIntent, ChapterStatus, TruthData
 from storyforge3.services.chapter_service import CHAPTER_DRAFT_PROMPT, ChapterService
 from storyforge3.state.machine import ChapterStateMachine
 from storyforge3.style.imitation import StyleAnalyzer
@@ -271,6 +271,58 @@ def test_chapter_service_get_status_returns_planned_without_text(config: StoryFo
     assert result is not None
     assert result.status == ChapterStatus.PLANNED
     assert result.text == ""
+
+
+def test_chapter_service_get_status_loads_truth_after_truth_committed(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    service.storage.write_text(service.paths.chapter_file("lurenjia", 8), "林默确认事实。")
+    truth = TruthData(
+        chapter_no=8,
+        source="runtime_native",
+        fact_assertions=("林默确认事实。",),
+        character_updates=(),
+        relationship_updates=(),
+        hook_updates=(),
+        irreversible_facts=(),
+        notes=(),
+    )
+    service.truth_store.save("lurenjia", truth)
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    for status in (ChapterStatus.PLANNED, ChapterStatus.DRAFTED, ChapterStatus.AUDITED, ChapterStatus.APPROVED, ChapterStatus.TRUTH_COMMITTED):
+        machine.advance("lurenjia", 8, status)
+
+    result = run(service.get_status("lurenjia", 8))
+
+    assert result is not None
+    assert result.status == ChapterStatus.TRUTH_COMMITTED
+    assert result.truth == truth
+
+
+def test_chapter_service_get_status_does_not_load_truth_for_approved(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    service.storage.write_text(service.paths.chapter_file("lurenjia", 8), "林默确认事实。")
+    service.truth_store.save(
+        "lurenjia",
+        TruthData(
+            chapter_no=8,
+            source="runtime_native",
+            fact_assertions=("林默确认事实。",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    for status in (ChapterStatus.PLANNED, ChapterStatus.DRAFTED, ChapterStatus.AUDITED, ChapterStatus.APPROVED):
+        machine.advance("lurenjia", 8, status)
+
+    result = run(service.get_status("lurenjia", 8))
+
+    assert result is not None
+    assert result.status == ChapterStatus.APPROVED
+    assert result.truth is None
 
 
 def test_chapter_service_draft_reuses_persisted_plan(config: StoryForge3Config, book_workspace: Path) -> None:

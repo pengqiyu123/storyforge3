@@ -240,6 +240,33 @@ async def test_export_before_truth_committed_returns_action_not_allowed(async_cl
 
 
 @pytest.mark.asyncio
+async def test_export_approved_with_persisted_truth_delegates_to_service(async_client, api_chapter_service, api_truth_store):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        8,
+        ChapterStatus.APPROVED,
+        "第8章",
+        "正文",
+    )
+    api_truth_store.by_chapter[("chapter-api", 8)] = TruthData(
+        chapter_no=8,
+        source="runtime_native",
+        fact_assertions=("第8章事实。",),
+        character_updates=(),
+        relationship_updates=(),
+        hook_updates=(),
+        irreversible_facts=(),
+        notes=(),
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/8/export", json={"fmt": "md"})
+
+    assert response.status_code == 200
+    assert response.json()["data"]["path"].endswith("chapter-0008.md")
+    assert api_chapter_service.export_calls == 1
+
+
+@pytest.mark.asyncio
 async def test_export_after_truth_committed_delegates_to_service(async_client, api_chapter_service):
     api_chapter_service.status_result = ChapterResult(
         "chapter-api",

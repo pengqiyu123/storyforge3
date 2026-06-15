@@ -77,6 +77,7 @@ class ApiFakeChapterService:
         self.last_update_text: tuple[str, int, str, str | None] | None = None
         self.approve_calls = 0
         self.export_calls = 0
+        self.truth_store = ApiFakeTruthStore()
 
     async def audit(self, book_id: str, chapter_no: int) -> AuditResult:
         if self.audit_not_found:
@@ -202,12 +203,13 @@ class ApiFakeTruthStore:
     def __init__(self) -> None:
         self.latest: TruthData | None = None
         self.saved: tuple[str, TruthData] | None = None
+        self.by_chapter: dict[tuple[str, int], TruthData] = {}
 
     def load_latest(self, _book_id: str) -> TruthData | None:
         return self.latest
 
     def load(self, _book_id: str, _chapter_no: int) -> TruthData | None:
-        return None
+        return self.by_chapter.get((_book_id, _chapter_no))
 
     def load_history(self, _book_id: str) -> list[TruthData]:
         return [
@@ -342,6 +344,7 @@ async def async_client(
     app.dependency_overrides[get_config] = lambda: api_config
     app.dependency_overrides[get_book_service] = lambda: api_book_service
     app.dependency_overrides[get_llm_service] = lambda: api_mock_llm
+    api_chapter_service.truth_store = api_truth_store
     app.dependency_overrides[get_chapter_service] = lambda: api_chapter_service
     app.dependency_overrides[get_chapter_discarder] = lambda: ChapterDiscarder(
         api_storage,

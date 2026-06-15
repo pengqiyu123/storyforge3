@@ -262,7 +262,11 @@ class ChapterService:
     async def get_status(self, book_id: str, chapter_no: int) -> ChapterResult | None:
         text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
         if text is not None:
-            return ChapterResult(book_id, chapter_no, self._workflow_status(book_id, chapter_no), f"第{chapter_no}章", text)
+            status = self._workflow_status(book_id, chapter_no)
+            truth = None
+            if status in (ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED):
+                truth = self.truth_store.load(book_id, chapter_no)
+            return ChapterResult(book_id, chapter_no, status, f"第{chapter_no}章", text, truth=truth)
         if self._load_plan(book_id, chapter_no) is not None:
             return ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
         return None

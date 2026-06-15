@@ -852,6 +852,10 @@ async def _gate_state(
     chapter_status = _status_from_result(result)
     audit_blocking = _audit_blocking_count(result, service)
     truth_exists = _truth_exists(result)
+    if not truth_exists and chapter_status == ChapterStatus.APPROVED:
+        truth_store = getattr(service, "truth_store", None)
+        if truth_store is not None:
+            truth_exists = truth_store.load(book_id, chapter_no) is not None
     run_status = _current_run_status(registry, book_id, chapter_no)
     return {
         "chapter_status": chapter_status,
