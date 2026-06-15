@@ -1,54 +1,51 @@
 # StoryForge3 下一步计划
 
-> 更新时间：2026-06-14
+> 更新时间：2026-06-15
 > 职责：只记录后续计划、风险和目标。当前事实见 `docs/current.md`，历史见 `docs/history.md`。
-> 架构依据：`docs/architecture/run-state-and-viewer.md`；外部评估：`docs/proposals/doubao-p0.5-p1-eval.md`。
+> **方向权威**：[`docs/reviews/pm-direction-correction-2026-06-15.md`](reviews/pm-direction-correction-2026-06-15.md)（2026-06-15 方向纠偏，凌驾本文旧版）。
 
-## 总方向
+## 总方向（2026-06-15 纠偏后）
 
-**agent-mode-first**：把系统从"功能堆叠 + 手动按钮"演进为"创作流程操作系统"——Action/Run 执行、RunRecord/SSE 可观察、前端只看+确认+介入。最终让 Phase 10B AutoDirector 成为可暂停/可检查/可恢复/可审计的生产系统，而非"把现有问题自动放大"的黑盒。
+**小说生产本位**：StoryForge3 存在的唯一理由是**生产中文网文连载小说**（主力《别打了》）。**引擎是仆，小说是主。** 成功度量 = 产出的小说（章节数 / 质量 / 连续性 / 可读性），**不是**引擎特性数或测试通过数。
 
-范式转换已落地一半：章节页已是纯查看 Run Viewer（P0.5）；运行入口是 agent/API；**下一步是把"运行状态"持久化为一等公民**，让刷新/重启后能恢复、让前端面板真正反映火车运行。
+**漂移诊断**：自 P0.5（ch2 起草）以来 7 阶段全是引擎工作（RunRecord/reconcile/dev/章节显示/Run Viewer/门禁），《别打了》仍停 ch2，ch3/4 是幽灵。**引擎已够用，停手转向生产。**
 
-## P1：流程可信基础（当前重点，约 1 周）
+**纠正**：
+1. **P1-3（门禁）= 引擎最后一项**。之后立即转真实多章生产。
+2. **生产不等 AutoDirector**——agent 现在就能调 API 产章；AutoDirector 是"自动化产章"，非前提。
+3. **引擎扩张 DEFER**：P-IMP-2 / P-IMP-4 / Phase 10B AutoDirector / 10C 全部后置，待 dogfood 暴露真实阻塞才动。
+4. **度量切换**：下一里程碑 = 《别打了》多出几章人读得下去的正文。
 
-按豆包建议分三步，**不要一次重写整个章节页**。
+## 当前首要：真实多章生产（P1-3 验收后立即启动）
 
-### P1-1 RunRecord 后端最小闭环
-- `RunStatus`（PENDING/RUNNING/WAITING_FOR_HUMAN/COMPLETED/FAILED/RESUMABLE/CANCELLED）
-- `PipelineRunRecord` + `StageResult`，持久化到 `chapters/{n}/runs/{run_id}.json` + `current_run.json`
-- `POST /run` 改**异步**（立即返 `run_id`，后台跑）+ `GET /run` + `POST /run/{id}/resume` + `/cancel`
-- `ChapterStatus` 加 `TRUTH_COMMITTED`（APPROVED→TRUTH_COMMITTED→EXPORTED）
-- **目标**：刷新后前端知道"后台之前跑到哪"。
-- **限制**（明确接受）：进程内 registry 后端重启丢任务 → 标 RESUMABLE；多 worker 不可靠（P3 上队列）。
+**目标**：用当前引擎（火山 ark-code-latest provider）经 agent/API 实际生产《别打了》多章可读正文，验证端到端闭环 + 暴露真实阻塞。
 
-### P1-2 前端 Run Viewer 最小版
-- `api/runs.ts` + `useRunRecord` + `useRunEvents`（ref 模式，已修 flapping）
-- `RunTrack`（横向阶段轨）+ `LiveStage`（流式正文/进度/等待提示）
-- 现有查看 tab 降级为 ResultTabs；保留手动正文编辑
-- **目标**：用户看到 run 当前阶段、流式正文、失败点、等待确认点；刷新恢复。
+步骤：
+1. **ch3/ch4 幽灵处置**（✅ 已完成 2026-06-15）：用户决策 discard，PM 已执行（删 truth.db 92 行 + truth JSON + exports + snapshots + pipeline.jsonl 该章行，全套备份 `books/_discard_backup_ch34/`）。reconcile 干净 ch2 状态。
+2. **P-DISCARD-1 并行**（指令已下发）：把上述手写 discard 固化为有测试的 API 原语 + 强制 `_trash/` 备份，作 dogfood redo 保险。不阻塞 dogfood。
+3. **生产 ch3**：agent 调 `POST /run` 全管线（火山 ark-code-latest）→ 验证 Run Viewer 实时反映 → reconcile 正确归档 → 人工读评（剧情/连续性/文笔）。
+4. **连续性验证**：跨章 truth 召回、伏笔/回收、十二文明设定一致性。
+5. **暴露的阻塞才进 backlog**：dogfood 中遇到的真问题（prompt 质量 / provider 稳定 / 世界观缺口）才开新指令，**不再 speculative 建特性**。
 
-### P1-3 门禁规则统一
-- `allowedActions(chapter_status, run_status, audit, truth)` 纯函数（前后端共享语义）
-- 后端 guard 强制 + 前端 disabled 镜像
-- blocking>0 禁 approve；truth 未提交禁正式 export；exported 后"新版本"入口
-- **目标**：解决"按钮乱序、已完成重跑、非法跳步"（当前 P0.5 只是"导出后全锁 + 查看不运行"的过渡门禁）。
+**验收**：产出 ≥3 章可读正文（非 fake provider），人工读评通过，无新幽灵产物。
 
-### P1 SSE 标准化（随 P1-1/2）
-现有 `pipeline:*`/`llm:*` 重命名为 `stage:start/progress/complete/error` + `run:start/complete/waiting`，加适配层过渡。
+## P1：流程可信基础 — ✅ **已关闭（2026-06-15）**
+
+> P1-1 ✅ / P1-1b ✅ / P1-2 ✅ / P-IMP-3 ✅ / P-IMP-3b ✅ / P1-3 ✅ / P-DISCARD-1 ✅。**P1 全部闭环，引擎工作收官。** 详见 `docs/history.md`。
 
 ## P0.5 已完成（不再列入计划）
 
 SSE named-event 修复、status 200+empty、分段流式正文、draft→DRAFTED、章节页纯查看、火山路由 fix、CCSwitch 供应商面板、CI 三连修复。详见 `current.md`。
 
-## Phase 10B：自动导演 MVP（P1 之后）
+## Phase 10B：自动导演 MVP（⚠️ DEFER，待真实生产验证后）
 
-**前置**：P1 完成（流程可信 + RunRecord 真相源 + 门禁）。
+**前置**：真实多章生产（见上"当前首要"）跑通 + 暴露"人工驱动 agent 太累"的真需求，才启动 AutoDirector。**不要在没产出小说前造自动化。**
 
 - **10B-1a** 灵感→第1章闭环：`AutoDirectorService`，书籍级 checkpoint/resume，全程 SSE，人工确认点（world/characters/第1章 draft 前）。
 - **10B-1b** 第2-3章连续性：跨章 truth 累积召回，批量生成，连续性验证。
+- 借鉴：`调研报告/trae-agent-architecture-wiki.md`（外部，agent loop / trajectory / lakeview 模式，仅设计参考）。
 
-## Phase 10C：RAG + 方法论 + 产品化（候选）
+## Phase 10C：RAG + 方法论 + 产品化（⚠️ DEFER，候选）
 
 Truth 检索优化（中文分词/距离衰减）、轻量 RAG、雪花法/钩子/节奏/弧光、编辑器专注模式、同人前端 UI。
 

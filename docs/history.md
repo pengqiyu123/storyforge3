@@ -1,7 +1,62 @@
 # StoryForge3 阶段历史
 
-> 更新时间：2026-06-14  
+> 更新时间：2026-06-15
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
+
+## P1-3 + P-DISCARD-1：门禁统一 + 章节 discard 原语 → P1 全部闭环（2026-06-15）
+
+状态：完成。后端 589 passed（+23 vs P-IMP-3b 的 566）/ 前端 111 passed / ruff clean。
+
+**P1-3 门禁统一**（commit `46746c2`）：
+
+- **`allowed_actions()` 纯函数**（`state/gating.py` 37 行）：门禁唯一真相源，12 条参数化规则覆盖全部 ChapterStatus × RunStatus 组合。RUNNING/WAITING 全禁；AUDITED blocking>0 强制 revise；APPROVED+truth_exists 兼容 export；EXPORTED/NEEDS_REVIEW 空集。
+- **后端 guard 集中接入**：`_guard_action()` → `_gate_state()` → `allowed_actions()`，7 个端点（plan/draft/audit/revise/approve/export/run）入口统一校验，不允许则抛 `ACTION_NOT_ALLOWED(409)` 含 `current_status`/`required` 诊断。
+- **前端 `gating.ts` 按 DEFER 不做**：agent-mode 无按钮承载；409 错误体已自带诊断。
+- **测试**：`test_gating.py` 12 参数化 + export compat；`test_api_chapters.py` 验证 export 409 / run gate 409。
+
+**P-DISCARD-1 章节 discard 原语**（commit `c86b0ac`）：
+
+- **`ChapterDiscarder` 服务**（`services/chapter_discarder.py` 275 行）：`preview()` 只读枚举 + `discard()` 备份→删除→reconcile。覆盖 5 层（正文/规划/truth JSON/导出/快照）+ run 目录 + pipeline.jsonl 行剥离 + state 键移除 + **Truth DB 删除**（`TruthStore.delete_by_chapter`，参数化 SQL）。
+- **强制安全**：先备份到 `_trash/ch{n}/NNN` 再删除；`_is_scoped()` 防路径逃逸；pipeline 行解析双条件 `book_id + chapter_no`；不动 `book.json`。
+- **幂等**：无产物章返空 summary 不报错。
+- **API**：`GET /{n}/discard-preview` + `DELETE /{n}`，统一 envelope。
+- **测试**：`test_chapter_discarder.py` 3 个（preview hash 对比 / 5 层全清 + 备份完整 + scope 安全 + 幂等）+ `test_api_chapters.py` scoped API 测试 + `test_api/test_chapter_discard.py` 全量 API 测试。
+
+**P1 正式闭环。** 从 P1-1（RunRecord）到 P1-3（门禁），流程可信基础全部就绪。引擎工作收官。
+
+## P-IMP-3b：章节展示精细化（2026-06-15）
+
+状态：完成。后端 566 passed（+1）/ 前端 111 passed（+1）/ ruff + typecheck + build clean。commit `590c4fe`（RED `fbf9451`）。
+
+关键里程碑：
+
+- **reconcile 补派生字段**：`valid_chapter_count` / `highest_contiguous_chapter` / `next_writable_chapter_no` / `has_blocking_inconsistency`；per-chapter `validity`(valid/partial/orphan/empty)。纯派生，不改扫描逻辑。
+- **阻断优先（PM 改进，优于分析师 §8.4）**：`has_blocking_inconsistency` 时指示器警告「⚠ 存在数据不一致（第 X、Y 章），请先检查」，**不**建议续写章号；仅全书一致时 `next_writable = highest_contiguous+1`。
+- **文案修正**：顶部「真实产物 {maxChapter} 章」→「已发现章节产物 N 章 · 最高第 M 章 · ⚠ K 章不一致」；ch3/4 显示「孤儿产物：有 Truth/导出但无正文」。
+- 《别打了》实测：`valid_count=2 / highest_contiguous=2 / next_writable=3 / has_blocking=true`；DOM 全字段命中，`forbidden_run_buttons=0`、`agent_trigger_mentions=0`。
+- 不 heal / 不删 / 不改 book.json。
+
+分析师文档 [`章节按进度展示体验分析与改进建议.md`](../章节按进度展示体验分析与改进建议.md) §7/§10 三处缺陷全部修复。
+
+## P1-2 + P-IMP-3：Run Viewer 最小版 + 章节列表读 reconcile（2026-06-15）
+
+状态：完成。后端 565 passed / 前端 110 passed（+28 vs P-OPS-1 的 82）/ ruff + typecheck + build clean。
+
+**P-IMP-3**（commit `fb19096`，RED `a8e37f9`）：
+
+- `ChapterList` 改读 `GET /reconcile`，废弃 `current_chapter+2` 空卡片启发式。
+- ch3/4 显示「数据不一致」+ 可展开中文 reasons（3 条）；末尾单个「下一章指示器」；顶部进度改 `reconcile.max_chapter`。
+- DOM 验收：`chapter-card-1..4` / `chapter5_buttons=0` / `next_indicator=1` / 进度 4/80 取代旧 2/80。
+
+**P1-2**（commit `058d5f7`，RED `8037b01`）：
+
+- 新增 `api/runs.ts` + `useRunRecord`（`GET /run` 刷新恢复）+ `useRunEvents`（SSE `run:*`/`stage:*`/`llm:chunk`，ref 模式）+ `RunTrack` + `LiveStage`。
+- 集成进章节详情页顶部，保留既有 view-tabs + ChapterEditor（演进非重写）。
+- **agent-mode-only 严格执行**：PM 裁决覆盖 spec §4 ActionBar——无运行按钮，ActionBar 只读 `run.status` + 「取消」（仅 RUNNING/WAITING 时）。
+- DOM 四快照（active / after_reload / streaming / final）验收：RunTrack 逐阶段点亮 / 刷新恢复一致 / 流式累加 / `forbidden_run_buttons=0` 贯穿 / cancel 门控（运行时 1 → 完成 0）。
+- 注：人工证据用 fake provider（隔离 `output/p1-2-manual/`），流式正文为 canned 重复段，非真实写作；真实 provider dogfood 待 sanity-check chunk 去重。
+
+未做（转 P-IMP-3b）：分析师文档 [`章节按进度展示体验分析与改进建议.md`](../章节按进度展示体验分析与改进建议.md) §7/§10 抓到「真实产物 maxChapter 误导」「nextChapter=max+1 跳过幽灵章」「缺 valid/partial/orphan 分类」三处缺陷，PM 核验属实。
 
 ## P-OPS-1：统一启动入口（2026-06-14）
 

@@ -1,15 +1,15 @@
 # StoryForge3 当前状态
 
-> 更新时间：2026-06-14
+> 更新时间：2026-06-15
 > 职责：只记录当前事实、质量基线和进行中阶段。历史流水见 `docs/history.md`，后续计划见 `docs/next.md`。
 
 ## 当前定位
 
 StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、世界观、角色、卷纲、章节起草、审计、修订、truth 提取、导出、桌面端和 MCP 集成。
 
-**产品方向（2026-06-14 锁定，见 `CLAUDE.md` "Product Direction — agent-mode ONLY"）：agent 模式唯一实现，手动模式（UI 运行按钮）deferred。** agent（Claude Code/Codex）或外部 API 驱动管线；Web UI 是只读 Run Viewer（运行状态中心 + 结果查看），不再有"点击运行"的步骤按钮。核心引擎价值已由 dogfood 验证（火山引擎 ark-code-latest 可产出高质量章节正文）。
+**产品方向（2026-06-15 锁定，见 `docs/reviews/pm-direction-correction-2026-06-15.md`）：引擎已够用，停手。下一里程碑 = 《别打了》多出几章人读得下去的正文。** agent 模式唯一实现，Web UI 是只读 Run Viewer。核心引擎价值已由 dogfood 验证（火山引擎 ark-code-latest 可产出高质量章节正文）。
 
-当前阶段：**P-OPS-1 完成（565 passed；`storyforge3 dev` 一键启动 + 启动诊断日志）→ P-IMP-3（章节列表读 reconcile，"5 章"修复）→ P1-2（前端 Run Viewer）**。
+当前阶段：**P1 全部闭环 ✅ → 引擎工作收官 → 转入真实多章生产（《别打了》ch3+）**。
 
 ## 已交付阶段
 
@@ -23,6 +23,12 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 | Phase 9 | Prompt 质量修复 | 完成 |
 | Phase 10A-1/2/3 | 覆盖率基线 + 文档治理、后端流式 SSE、前端 SSE 进度 UI | 完成 |
 | **P0.5（2026-06-13/14）** | SSE named-event 修复、status 200+empty、分段流式正文、draft→DRAFTED 状态推进、章节页纯查看(Run Viewer)、火山路由 fix、CCSwitch 供应商面板、CI 三连修复 | **完成** |
+| **P1-3（2026-06-15）** | `allowed_actions()` 纯函数 + 后端 guard（7 端点）+ 409 ACTION_NOT_ALLOWED + 参数化测试 | **完成** |
+| **P-DISCARD-1（2026-06-15）** | 章节 discard 原语（5 层备份→删除→reconcile）+ API preview/DELETE + 幂等 | **完成** |
+
+## P1 闭环声明
+
+**P1（流程可信基础）于 2026-06-15 全部闭环。** P1-1 RunRecord ✅ → P1-1b reconcile ✅ → P-IMP-3 章节列表读 reconcile ✅ → P1-2 Run Viewer ✅ → P-IMP-3b 章节展示精细化 ✅ → P1-3 门禁统一 ✅。引擎工作收官，不再新增引擎特性。
 
 ## P0.5 交付明细（本会话）
 
@@ -38,8 +44,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前 |
 |----|------|
-| 后端测试 | **565 passed**（P-OPS-1 后；含 reconcile/truth 防御/provider 健壮性/dev_runner 双进程） |
-| 前端测试 | **82 passed**（ChapterPipeline 重写为查看模型后） |
+| 后端测试 | **589 passed**（P-DISCARD-1 后；+23 新测试） |
+| 前端测试 | **111 passed**（P-IMP-3b 后；含 validity 徽标 + 阻断指示器 + Run Viewer） |
 | Rust 测试 | 5 既有基线；本机无 cargo，需 CI 验证 |
 | Python lint | `ruff check .` clean |
 | Frontend build | `pnpm build` clean，仅 CodeMirror 大 chunk 警告 |
@@ -47,9 +53,10 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 ## 当前工作焦点
 
-1. **P-IMP-3 章节列表读 reconcile**（待发）：`ChapterList` 从 `current_chapter+2` 启发式改为读 `GET /reconcile` 真相源，消除空卡片噪声 + 幽灵章节可见。依赖 P1-1b ✅ 已就绪。
-2. **P1-2 前端 Run Viewer 最小版**：`RunTrack`/`LiveStage`/`useRunRecord`/`useRunEvents`，刷新后能恢复 run 状态。
-3. **P1-3 门禁统一**：`allowedActions()` + 后端 guard + 前端镜像 + exported 新版本入口。
+1. **⚠ 真实多章生产（《别打了》ch3+）= 当前首要**（P1-3 验收后立即启动）：agent/API 调火山 provider 产《别打了》ch3→ch4→…，验证端到端闭环 + 人工读评。详见 `docs/reviews/pm-direction-correction-2026-06-15.md`。
+2. **引擎工作已收官**：P1-3 是最后一项引擎特性。P-IMP-2 / P-IMP-4 / Phase 10B / 10C 全 DEFER，直到 dogfood 暴露**真实阻塞**才动。
+3. **P-DISCARD-1 并行完成**：章节 discard 原语已就绪，作 dogfood "写错可安全丢弃重来"的保险。
+4. **ch3/4 幽灵已清理**：PM 执行 discard + P-DISCARD-1 固化；reconcile 干净 ch2 状态（max=2/valid=2/inconsistent=0/next_writable=3）。
 
 > 详见 `docs/architecture/run-state-and-viewer.md`（架构 spec）与 `docs/proposals/doubao-p0.5-p1-eval.md`（豆包的 P1 三步建议）。
 

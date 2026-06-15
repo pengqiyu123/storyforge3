@@ -67,13 +67,17 @@ Trae 两轮各出现一次"**断言代码行为但未读源码**"：
 
 ---
 
-## 5. 已完成（截至 2026-06-14）
+## 5. 已完成（更新 2026-06-15）
 
 | 项 | 状态 | 证据 |
 |----|------|------|
 | P1-1 RunRecord 后端闭环 | ✅ | 532 passed |
-| **P1-1b 章节产物一致性诊断 + truth 防御** | ✅ **本轮验收通过** | 545 passed；reconcile 对《别打了》输出 ch3/4 inconsistent（`export_without_state`+`export_without_text`+`truth_without_state`）、ch1/2 consistent；truth retriever 严格 `< 目标章` 测试 |
-| **P-IMP-1 provider 配置健壮性** | ✅ Codex 在 `e0e020b` 一并落地 | 路径锚定项目根 + `CCSWITCH_DB_PATH` 生效 + 无 key 前端禁选 + 火山 builder/route 测试 |
+| P1-1b 章节产物一致性诊断 + truth 防御 | ✅ | 545 passed；reconcile 对《别打了》ch3/4 inconsistent |
+| P-IMP-1 provider 配置健壮性 | ✅ `e0e020b` | 路径锚定项目根 + `CCSWITCH_DB_PATH` + 无 key 禁选 + 火山 builder 测试 |
+| **P-OPS-1 统一启动入口** | ✅ `211452a` | `storyforge3 dev` 一键 + 启动诊断日志；解决"后端没起→书消失"复发事故 |
+| **P-IMP-3 章节列表读 reconcile** | ✅ `fb19096` | 废弃 `current_chapter+2` 空卡片；ch3/4 可见不一致；下一章指示器 |
+| **P1-2 Run Viewer 最小版** | ✅ `058d5f7` | RunTrack/LiveStage + `useRunRecord`(刷新恢复) + `useRunEvents`(SSE)；agent-mode-only（`forbidden_run_buttons=0`） |
+| **P-IMP-3b 章节展示精细化** | ✅ `590c4fe` | validity(valid/partial/orphan) + `next_writable`(阻断优先) + 文案修正；《别打了》`valid_count=2/next_writable=3/has_blocking=true` |
 
 ---
 
@@ -81,16 +85,18 @@ Trae 两轮各出现一次"**断言代码行为但未读源码**"：
 
 | 优先级 | 指令 | 状态 | 依赖 |
 |--------|------|------|------|
-| **P0** | **P-OPS-1 统一启动入口** | 🆕 **本轮下发** | — |
-| P1 | P-IMP-3 章节列表读 reconcile（"5 章"启发式修复） | 待发 | P1-1b ✅ |
+| P1 | **P1-3 门禁统一**（`allowedActions()` 纯函数 + 后端 guard + 前端只读镜像） | 🆕 **本轮下发** | P1-1/P1-2 ✅ |
 | P1 | P-IMP-2 导入 UX 余项（auto-verify + 错误码分层） | 待发 | — |
 | P2 | P-IMP-4 agent-mode UI 清理（"运行全流程"标签等） | 待发 | — |
+| — | **真实 dogfood**（火山 provider 端到端验证整条 P1 闭环） | 建议在 P1-3 后 | 全 P1 ✅ |
 
 ---
 
 ## 7. 数据安全声明
 
-《别打了》全部产物（chapters / truth / exports / state / runs）+ `.storyforge3/providers.json` + `~/.cc-switch/cc-switch.db` 均**完整未损**（2026-06-14 PM 直跑数据层确认 `BOOK COUNT=1`）。幽灵章节 ch3/ch4 仍按 P1-1b 红线**只诊断不 heal**，等 PM 验收 reconcile 准确性后决定。
+《别打了》全部产物（chapters / truth / exports / state / runs）+ `.storyforge3/providers.json` + `~/.cc-switch/cc-switch.db` 均**完整未损**（2026-06-14 PM 直跑数据层确认 `BOOK COUNT=1`）。
+
+**ch3/ch4 幽灵章节：已 discard（2026-06-15）。** 用户决策"discard，从 ch2 干净续写"。PM 执行：删 truth.db ch3/4 行（92 行）+ truth JSON + exports + snapshots + 剥离 pipeline.jsonl ch3/4 行，全套备份在 `books/_discard_backup_ch34/`。reconcile 验证干净 ch2 状态（max=2/valid=2/inconsistent=0/next_writable=3）。truth.db 不再含幽灵 truth，不会污染新 ch3 生成上下文。
 
 ---
 
