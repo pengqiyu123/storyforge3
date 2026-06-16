@@ -1,0 +1,204 @@
+{
+  "别打了w帮你们翻译还不行吗_20260611:0001": {
+    "status": "exported",
+    "history": [
+      {
+        "from": "empty",
+        "to": "planned",
+        "at": "2026-06-11T15:00:32.125590+00:00"
+      },
+      {
+        "from": "planned",
+        "to": "drafted",
+        "at": "2026-06-11T15:00:32.129694+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-11T15:00:32.131911+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "approved",
+        "at": "2026-06-11T15:00:32.135420+00:00"
+      },
+      {
+        "from": "approved",
+        "to": "exported",
+        "at": "2026-06-11T15:00:32.137499+00:00"
+      }
+    ]
+  },
+  "别打了w帮你们翻译还不行吗_20260611:0002": {
+    "status": "exported",
+    "history": [
+      {
+        "from": "empty",
+        "to": "planned",
+        "at": "2026-06-13T14:29:41.571730+00:00"
+      },
+      {
+        "from": "planned",
+        "to": "drafted",
+        "at": "2026-06-13T23:44:13.559947+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-14T02:46:19.101988+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "approved",
+        "at": "2026-06-14T02:47:32.471537+00:00"
+      },
+      {
+        "from": "approved",
+        "to": "truth_committed",
+        "at": "2026-06-15T14:50:15.791913+00:00"
+      },
+      {
+        "from": "truth_committed",
+        "to": "exported",
+        "at": "2026-06-15T14:50:15.801814+00:00"
+      }
+    ]
+  },
+  "别打了w帮你们翻译还不行吗_20260611:0003": {
+    "status": "exported",
+    "history": [
+      {
+        "from": "empty",
+        "to": "planned",
+        "at": "2026-06-15T13:27:28.281222+00:00"
+      },
+      {
+        "from": "planned",
+        "to": "drafted",
+        "at": "2026-06-15T13:32:46.556112+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-15T13:32:46.570352+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "approved",
+        "at": "2026-06-15T15:40:02.244887+00:00"
+      },
+      {
+        "from": "approved",
+        "to": "truth_committed",
+        "at": "2026-06-15T15:40:02.247894+00:00"
+      },
+      {
+        "from": "truth_committed",
+        "to": "exported",
+        "at": "2026-06-15T15:40:02.260047+00:00"
+      }
+    ]
+  },
+  "别打了w帮你们翻译还不行吗_20260611:0004": {
+    "status": "exported",
+    "history": [
+      {
+        "from": "empty",
+        "to": "planned",
+        "at": "2026-06-16T10:49:16.987335+00:00"
+      },
+      {
+        "from": "planned",
+        "to": "drafted",
+        "at": "2026-06-16T10:50:02.472067+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-16T10:52:34.921854+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "needs_review",
+        "reason": "truth_extraction_failed: truth_extract: invalid JSON response",
+        "at": "2026-06-16T10:53:36.414399+00:00"
+      },
+      {
+        "from": "needs_review",
+        "to": "drafted",
+        "at": "2026-06-16T10:56:27.344592+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-16T10:56:27.361177+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "approved",
+        "at": "2026-06-16T10:56:27.374926+00:00"
+      },
+      {
+        "from": "approved",
+        "to": "truth_committed",
+        "at": "2026-06-16T10:56:27.389814+00:00"
+      },
+      {
+        "from": "truth_committed",
+        "to": "exported",
+        "at": "2026-06-16T10:56:27.429428+00:00"
+      }
+    ]
+  },
+  "别打了w帮你们翻译还不行吗_20260611:0005": {
+    "status": "exported",
+    "history": [
+      {
+        "from": "empty",
+        "to": "planned",
+        "at": "2026-06-16T15:51:44.810352+00:00"
+      },
+      {
+        "from": "planned",
+        "to": "drafted",
+        "at": "2026-06-16T15:52:52.588574+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-16T15:56:19.182257+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "needs_review",
+        "reason": "truth_extraction_failed: truth_extract: invalid JSON response",
+        "at": "2026-06-16T15:57:18.924565+00:00"
+      },
+      {
+        "from": "needs_review",
+        "to": "drafted",
+        "at": "2026-06-16T16:11:39.222153+00:00"
+      },
+      {
+        "from": "drafted",
+        "to": "audited",
+        "at": "2026-06-16T16:11:39.228493+00:00"
+      },
+      {
+        "from": "audited",
+        "to": "approved",
+        "at": "2026-06-16T16:11:39.234528+00:00"
+      },
+      {
+        "from": "approved",
+        "to": "truth_committed",
+        "at": "2026-06-16T16:11:39.242083+00:00"
+      },
+      {
+        "from": "truth_committed",
+        "to": "exported",
+        "at": "2026-06-16T16:11:39.261944+00:00"
+      }
+    ]
+  }
+}
