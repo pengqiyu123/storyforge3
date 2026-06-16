@@ -11,6 +11,7 @@ from storyforge3.llm.provider_config import ProviderConfigManager
 from storyforge3.logging.pipeline_logger import PipelineLogger
 from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.audit_service import AuditService
+from storyforge3.services.book_discarder import BookDiscarder
 from storyforge3.services.book_service import BookService
 from storyforge3.services.chapter_service import ChapterService
 from storyforge3.services.chapter_discarder import ChapterDiscarder
@@ -140,6 +141,13 @@ def get_chapter_discarder(
     reconciler: ChapterReconciler = Depends(get_chapter_reconciler),
 ) -> ChapterDiscarder:
     return ChapterDiscarder(storage, paths, truth_store=truth_store, reconciler=reconciler)
+
+
+def get_book_discarder(
+    storage: BookStorage = Depends(get_storage),
+    paths: StoragePaths = Depends(get_paths),
+) -> BookDiscarder:
+    return BookDiscarder(storage, paths)
 
 
 def get_export_service(

@@ -82,6 +82,19 @@ class TruthDatabase:
             ).fetchall()
         return [self._entry_from_row(row) for row in rows]
 
+    def query_by_book(self, book_id: str) -> list[TruthEntry]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, book_id, chapter_no, category, content, importance, chapter_ids, created_at
+                FROM truth_entries
+                WHERE book_id = ?
+                ORDER BY chapter_no ASC, id ASC
+                """,
+                (book_id,),
+            ).fetchall()
+        return [self._entry_from_row(row) for row in rows]
+
     def query_recent(self, book_id: str, last_n_chapters: int = 5) -> list[TruthEntry]:
         with self._connect() as conn:
             max_chapter = conn.execute(
@@ -118,6 +131,14 @@ class TruthDatabase:
             cursor = conn.execute(
                 "DELETE FROM truth_entries WHERE book_id = ? AND chapter_no = ?",
                 (book_id, chapter_no),
+            )
+            return int(cursor.rowcount or 0)
+
+    def delete_book(self, book_id: str) -> int:
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM truth_entries WHERE book_id = ?",
+                (book_id,),
             )
             return int(cursor.rowcount or 0)
 

@@ -188,6 +188,7 @@ class BookStatus(str, Enum):
     PAUSED = "paused"
     COMPLETED = "completed"
     DROPPED = "dropped"
+    ARCHIVED = "archived"
 
 
 @dataclass(frozen=True)

@@ -3,10 +3,17 @@ from __future__ import annotations
 from pydantic import BaseModel
 from fastapi import APIRouter, Depends
 
-from storyforge3.api.deps import get_book_service, get_chapter_reconciler
-from storyforge3.api.errors import book_not_found, invalid_parameter
+from storyforge3.api.deps import get_book_discarder, get_book_service, get_chapter_reconciler
+from storyforge3.api.errors import ApiError, book_not_found, invalid_parameter
 from storyforge3.api.response import ok
-from storyforge3.models import BookConfig, BookMeta
+from storyforge3.models import BookConfig, BookMeta, BookStatus
+from storyforge3.services.book_discarder import (
+    BookDiscarder,
+    BookDiscardPreview,
+    BookDiscardResult,
+    BookDiscardSafetyError,
+    RestoreConflictError,
+)
 from storyforge3.services.book_service import BookService
 from storyforge3.services.chapter_reconciler import BookReconciliation, ChapterConsistency, ChapterReconciler
 
@@ -67,6 +74,19 @@ class BookReconciliationResponse(BaseModel):
     has_blocking_inconsistency: bool
 
 
+class BookDiscardPreviewResponse(BaseModel):
+    book_id: str
+    files: list[str]
+    file_count: int
+    size_bytes: int
+    truth_db_rows: int
+    backed_up_to: str | None = None
+
+
+class BookDiscardResultResponse(BookDiscardPreviewResponse):
+    backup_id: str | None = None
+
+
 def _meta_to_response(meta: BookMeta) -> BookResponse:
     return BookResponse(
         book_id=meta.book_id,
@@ -113,6 +133,29 @@ def _reconciliation_to_response(result: BookReconciliation) -> BookReconciliatio
     )
 
 
+def _book_discard_preview_to_response(preview: BookDiscardPreview) -> BookDiscardPreviewResponse:
+    return BookDiscardPreviewResponse(
+        book_id=preview.book_id,
+        files=list(preview.files),
+        file_count=preview.file_count,
+        size_bytes=preview.size_bytes,
+        truth_db_rows=preview.truth_db_rows,
+        backed_up_to=preview.backed_up_to,
+    )
+
+
+def _book_discard_result_to_response(result: BookDiscardResult) -> BookDiscardResultResponse:
+    return BookDiscardResultResponse(
+        book_id=result.book_id,
+        backup_id=result.backup_id,
+        files=list(result.files),
+        file_count=result.file_count,
+        size_bytes=result.size_bytes,
+        truth_db_rows=result.truth_db_rows,
+        backed_up_to=result.backed_up_to,
+    )
+
+
 @router.post("")
 async def create_book(
     req: CreateBookRequest,
@@ -132,9 +175,30 @@ async def create_book(
 
 
 @router.get("")
-async def list_books(service: BookService = Depends(get_book_service)):
+async def list_books(
+    include_archived: bool = False,
+    service: BookService = Depends(get_book_service),
+):
     books = await service.list_books()
+    if not include_archived:
+        books = [book for book in books if book.status != BookStatus.ARCHIVED]
     return ok([_meta_to_response(book) for book in books])
+
+
+@router.post("/_trash/{backup_id:path}/restore")
+async def restore_book(
+    backup_id: str,
+    discarder: BookDiscarder = Depends(get_book_discarder),
+):
+    try:
+        meta = discarder.restore_backup(backup_id)
+    except FileNotFoundError as exc:
+        raise ApiError(status=404, code="BOOK_BACKUP_NOT_FOUND", message=f"Book backup not found: {backup_id}") from exc
+    except RestoreConflictError as exc:
+        raise ApiError(status=409, code="BOOK_RESTORE_CONFLICT", message=str(exc)) from exc
+    except ValueError as exc:
+        raise invalid_parameter(str(exc)) from exc
+    return ok(_meta_to_response(meta))
 
 
 @router.get("/{book_id}")
@@ -154,6 +218,32 @@ async def reconcile_book(
     reconciler: ChapterReconciler = Depends(get_chapter_reconciler),
 ):
     return ok(_reconciliation_to_response(reconciler.reconcile(book_id)))
+
+
+@router.get("/{book_id}/delete-preview")
+async def delete_book_preview(
+    book_id: str,
+    discarder: BookDiscarder = Depends(get_book_discarder),
+):
+    try:
+        preview = discarder.preview(book_id)
+    except FileNotFoundError as exc:
+        raise book_not_found(book_id) from exc
+    return ok(_book_discard_preview_to_response(preview))
+
+
+@router.delete("/{book_id}")
+async def delete_book(
+    book_id: str,
+    discarder: BookDiscarder = Depends(get_book_discarder),
+):
+    try:
+        result = discarder.discard(book_id)
+    except FileNotFoundError as exc:
+        raise book_not_found(book_id) from exc
+    except BookDiscardSafetyError as exc:
+        raise ApiError(status=409, code="BOOK_DELETE_NOT_ALLOWED", message=str(exc)) from exc
+    return ok(_book_discard_result_to_response(result))
 
 
 @router.patch("/{book_id}/status")

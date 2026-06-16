@@ -29,6 +29,9 @@ class TruthStore:
     def delete_by_chapter(self, book_id: str, chapter_no: int) -> int:
         return self.database.delete_chapter(book_id, chapter_no)
 
+    def delete_by_book(self, book_id: str) -> int:
+        return self.database.delete_book(book_id)
+
     def load(self, book_id: str, chapter_no: int) -> TruthData | None:
         path = self._path(book_id, chapter_no)
         if not path.exists():

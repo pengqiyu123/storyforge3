@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from storyforge3.models import ChapterStatus
+from storyforge3.models import ChapterStatus, TruthData
 from storyforge3.state.machine import ChapterStateMachine
+from storyforge3.storage import BookStorage, StoragePaths
+from storyforge3.truth.store import TruthStore
 
 
 def test_create_book(client):
@@ -91,9 +93,77 @@ def test_update_book_status(client):
     assert resp.json()["data"]["status"] == "active"
 
 
+def test_archive_book_is_hidden_from_default_list_but_still_readable(client):
+    create = client.post(
+        "/api/books",
+        json={
+            "title": "归档书",
+            "genre": "urban",
+            "platform": "tomato",
+            "target_chapters": 50,
+            "chapter_word_count": 2500,
+        },
+    )
+    book_id = create.json()["data"]["book_id"]
+
+    archived = client.patch(f"/api/books/{book_id}/status", json={"status": "archived"})
+    default_list = client.get("/api/books")
+    include_archived = client.get("/api/books?include_archived=true")
+    detail = client.get(f"/api/books/{book_id}")
+
+    assert archived.status_code == 200
+    assert archived.json()["data"]["status"] == "archived"
+    assert book_id not in [item["book_id"] for item in default_list.json()["data"]]
+    assert book_id in [item["book_id"] for item in include_archived.json()["data"]]
+    assert detail.status_code == 200
+
+
 def test_update_status_book_not_found(client):
     resp = client.patch("/api/books/nonexistent/status", json={"status": "active"})
     assert resp.status_code == 404
+
+
+def test_delete_preview_delete_and_restore_book(client, config):
+    paths = StoragePaths(Path(config.books_dir))
+    storage = BookStorage(paths.books_root)
+    store = TruthStore(str(paths.books_root))
+    _seed_lifecycle_book(storage, store, paths, "book-a", status="archived", state_statuses={1: "exported"})
+
+    preview = client.get("/api/books/book-a/delete-preview")
+    deleted = client.delete("/api/books/book-a")
+    after_delete = client.get("/api/books/book-a")
+    backup_id = deleted.json()["data"]["backup_id"]
+    restored = client.post(f"/api/books/_trash/{backup_id}/restore")
+
+    assert preview.status_code == 200
+    assert "book.json" in preview.json()["data"]["files"]
+    assert "chapters/0001.md" in preview.json()["data"]["files"]
+    assert deleted.status_code == 200
+    assert deleted.json()["data"]["truth_db_rows"] == 1
+    assert after_delete.status_code == 404
+    assert restored.status_code == 200
+    assert restored.json()["data"]["book_id"] == "book-a"
+    assert client.get("/api/books/book-a").status_code == 200
+
+
+def test_delete_active_book_with_unfinished_chapter_is_rejected(client, config):
+    paths = StoragePaths(Path(config.books_dir))
+    storage = BookStorage(paths.books_root)
+    store = TruthStore(str(paths.books_root))
+    _seed_lifecycle_book(storage, store, paths, "book-a", status="active", state_statuses={1: "drafted"})
+
+    response = client.delete("/api/books/book-a")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "BOOK_DELETE_NOT_ALLOWED"
+    assert paths.book_meta("book-a").exists()
+
+
+def test_restore_rejects_unsafe_backup_id(client):
+    response = client.post("/api/books/_trash/..%2Fbook-a_20260616_010203/restore")
+
+    assert response.status_code == 400
+    assert response.json()["error"]["code"] == "INVALID_PARAMETER"
 
 
 def test_create_book_validation(client):
@@ -160,3 +230,51 @@ def _advance_state(root: Path, book_id: str, chapter_no: int, status: ChapterSta
         machine.advance(book_id, chapter_no, next_status)
         if next_status == status:
             return
+
+
+def _seed_lifecycle_book(
+    storage: BookStorage,
+    store: TruthStore,
+    paths: StoragePaths,
+    book_id: str,
+    *,
+    status: str,
+    state_statuses: dict[int, str],
+) -> None:
+    storage.write_json(
+        paths.book_meta(book_id),
+        {
+            "book_id": book_id,
+            "title": "测试书",
+            "genre": "urban",
+            "platform": "tomato",
+            "status": status,
+            "target_chapters": 12,
+            "chapter_word_count": 2500,
+            "language": "zh",
+            "current_chapter": max(state_statuses, default=0),
+            "created_at": "2026-06-16T00:00:00+00:00",
+            "updated_at": "2026-06-16T00:00:00+00:00",
+        },
+    )
+    storage.write_text(paths.context(book_id), "上下文")
+    storage.write_text(paths.chapter_file(book_id, 1), "第1章正文")
+    storage.write_json(paths.plan_file(book_id, 1), {"chapter_no": 1})
+    storage.write_text(paths.book_dir(book_id) / "exports" / "chapter-0001.txt", "第1章导出")
+    storage.write_json(
+        paths.chapter_states(book_id),
+        {f"{book_id}:{chapter_no:04d}": {"status": chapter_status, "history": []} for chapter_no, chapter_status in state_statuses.items()},
+    )
+    store.save(
+        book_id,
+        TruthData(
+            chapter_no=1,
+            source="runtime_native",
+            fact_assertions=("事实",),
+            character_updates=(),
+            relationship_updates=(),
+            hook_updates=(),
+            irreversible_facts=(),
+            notes=(),
+        ),
+    )
