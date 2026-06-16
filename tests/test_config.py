@@ -38,6 +38,15 @@ def test_config_reads_ccswitch_db_path_env(monkeypatch) -> None:
     assert config.resolved_ccswitch_db_path() == Path("C:/Users/demo/.cc-switch/cc-switch.db")
 
 
+def test_windows_ccswitch_db_path_is_not_joined_to_posix_cwd(monkeypatch, tmp_path) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("CCSWITCH_DB_PATH", "C:/Users/demo/.cc-switch/cc-switch.db")
+
+    config = StoryForge3Config()
+
+    assert config.resolved_ccswitch_db_path() == Path("C:/Users/demo/.cc-switch/cc-switch.db")
+
+
 def test_default_provider_config_dir_is_stable_across_cwd(monkeypatch, tmp_path) -> None:
     config = StoryForge3Config()
     before = config.resolved_providers_config_dir()

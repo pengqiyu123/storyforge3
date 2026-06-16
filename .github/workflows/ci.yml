@@ -12,6 +12,9 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   backend:
     name: Backend
@@ -90,6 +93,12 @@ jobs:
 
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Prepare desktop sidecar placeholder
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force src-tauri/binaries
+          Set-Content -Path src-tauri/binaries/storyforge3-api-x86_64-pc-windows-msvc.exe -Value "" -NoNewline
 
       - name: Check desktop
         run: cargo check --manifest-path src-tauri/Cargo.toml

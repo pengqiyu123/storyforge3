@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -57,7 +57,11 @@ class StoryForge3Config(BaseSettings):
         return path.resolve()
 
     def resolved_ccswitch_db_path(self) -> Path:
-        return Path(self.ccswitch_db_path).expanduser().resolve()
+        raw_path = self.ccswitch_db_path
+        path = Path(raw_path).expanduser()
+        if path.is_absolute() or PureWindowsPath(raw_path).is_absolute():
+            return path
+        return path.resolve()
 
     def _uses_default_providers_config_dir(self, path: Path) -> bool:
         return "providers_config_dir" not in self.model_fields_set and path == Path(DEFAULT_PROVIDERS_CONFIG_DIR)
