@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections import defaultdict
 from dataclasses import dataclass, field
 from string import Formatter
@@ -19,6 +20,7 @@ class PromptTemplate:
 
 class _SafeDict(dict):
     def __missing__(self, key: str) -> str:
+        warnings.warn(f"Prompt placeholder '{key}' not found in kwargs", stacklevel=2)
         return "{" + key + "}"
 
 
@@ -99,17 +101,6 @@ def create_default_registry() -> PromptRegistry:
     )
     registry.register(
         PromptTemplate(
-            "truth-extract-v1",
-            "truth_extract",
-            1,
-            "你是中文小说 truth 提取器，只提取后续章节必须服从的事实。",
-            ["输出必须是 JSON object。", "不得为空；无法提取时说明错误。"],
-            "只输出 JSON，不要 Markdown。",
-            {"temperature": 0.2},
-        )
-    )
-    registry.register(
-        PromptTemplate(
             "truth-extract-v2",
             "truth_extract",
             2,
@@ -131,21 +122,6 @@ def create_default_registry() -> PromptRegistry:
             ],
             "只输出符合 schema 的 JSON，不要 Markdown，不要解释。",
             {"temperature": 0.2},
-        )
-    )
-    registry.register(
-        PromptTemplate(
-            "audit-v1",
-            "audit",
-            1,
-            "你是独立中文小说审稿人。",
-            [
-                "关注语义层问题：连贯性、人物动机、钩子兑现、节奏断裂。",
-                "检查章节是否违背已有角色、世界规则、前章事件和信息边界。",
-                "不要泛泛评价文笔，不要重复机械规则问题，只报告会影响读者理解或后续连载的问题。",
-            ],
-            "只输出结构化 JSON。",
-            {"temperature": 0.3},
         )
     )
     registry.register(
@@ -176,21 +152,6 @@ def create_default_registry() -> PromptRegistry:
             ],
             "输出 JSON object，字段为 issues；每个 issue 含 severity、dimension、description、suggestion。",
             {"temperature": 0.2},
-        )
-    )
-    registry.register(
-        PromptTemplate(
-            "length-normalize-v1",
-            "length_normalize",
-            1,
-            "你是中文网文章节长度归一化编辑。",
-            [
-                "根据 action 对章节做单次压缩或扩写。",
-                "保留核心情节、事实、角色行为和章节承接。",
-                "禁止引入新主线、工程术语或解释性说明。",
-            ],
-            "只输出调整后的正文。",
-            {"temperature": 0.65},
         )
     )
     registry.register(

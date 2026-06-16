@@ -9,6 +9,7 @@ export type ChapterStatus =
   | "needs_revision"
   | "revised"
   | "approved"
+  | "truth_committed"
   | "exported"
   | "needs_review";
 
@@ -21,6 +22,7 @@ export interface ChapterResult {
   content_hash?: string | null;
   actual_chars?: number;
   revision_diff?: RevisionDiff | null;
+  audit_result?: AuditResult | null;
   error?: string | null;
 }
 

@@ -165,7 +165,7 @@ def test_prompt_service_list_templates() -> None:
 
     assert "compose" in by_task
     assert "truth_extract" in by_task
-    assert by_task["truth_extract"] == [1, 2]
+    assert by_task["truth_extract"] == [2]
 
 
 def test_style_service_default_contract(config) -> None:

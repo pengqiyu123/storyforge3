@@ -10,7 +10,7 @@ export function chapterPlanKey(bookId: string, chapterNo: number) {
   return ["chapter-plan", bookId, chapterNo] as const;
 }
 
-export function useChapterStatus(bookId: string, chapterNo: number) {
+export function useChapterStatus(bookId: string, chapterNo: number, enabled = true) {
   return useQuery({
     queryKey: chapterStatusKey(bookId, chapterNo),
     queryFn: async (): Promise<ChapterResult> => {
@@ -30,7 +30,7 @@ export function useChapterStatus(bookId: string, chapterNo: number) {
         throw error;
       }
     },
-    enabled: Boolean(bookId && chapterNo),
+    enabled: enabled && Boolean(bookId && chapterNo),
     retry: false
   });
 }

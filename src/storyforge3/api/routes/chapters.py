@@ -129,6 +129,7 @@ class ChapterStatusResponse(BaseModel):
     content_hash: str | None
     actual_chars: int
     revision_diff: "RevisionDiffResponse | None" = None
+    audit_result: "AuditResponse | None" = None
     error: str | None
 
 
@@ -286,6 +287,7 @@ def _result_to_response(result: ChapterResult) -> ChapterStatusResponse:
         content_hash=_content_fingerprint(result.text) if result.text else None,
         actual_chars=count_chinese_chars(result.text),
         revision_diff=_diff_to_response(result.revision_diff) if result.revision_diff else None,
+        audit_result=_audit_to_response(result.audit_result or result.audit) if (result.audit_result or result.audit) else None,
         error=result.error,
     )
 

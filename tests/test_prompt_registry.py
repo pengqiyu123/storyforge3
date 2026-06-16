@@ -34,9 +34,17 @@ def test_render_replaces_variables() -> None:
     assert "只输出正文" in rendered
 
 
-def test_default_registry_has_three_templates() -> None:
+def test_default_registry_contains_only_active_templates() -> None:
     registry = create_default_registry()
-    assert {"compose", "truth_extract", "audit"}.issubset(set(registry.list_task_types()))
+    assert set(registry.list_task_types()) == {
+        "compose",
+        "llm_audit",
+        "plan",
+        "revise",
+        "short_draft",
+        "short_plan",
+        "truth_extract",
+    }
 
 
 def test_default_registry_has_dedicated_plan_template() -> None:
@@ -76,13 +84,9 @@ def test_compose_template_includes_continuity_constraints() -> None:
     assert "无来源大设定" in rendered
 
 
-def test_audit_template_includes_semantic_constraints() -> None:
-    registry = create_default_registry()
-    template = registry.get_latest("audit")
-    rendered = registry.render_system_prompt(template)
+def test_render_warns_for_missing_placeholders() -> None:
+    registry = PromptRegistry()
+    with pytest.warns(UserWarning, match="Prompt placeholder 'chapter_no' not found"):
+        rendered = registry.render_system_prompt(template(1))
 
-    assert "人物动机" in rendered
-    assert "钩子兑现" in rendered
-    assert "节奏断裂" in rendered
-    assert "不要泛泛评价文笔" in rendered
-    assert "不要重复机械规则" in rendered
+    assert "写第{chapter_no}章" in rendered

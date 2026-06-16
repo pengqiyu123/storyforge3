@@ -175,6 +175,7 @@ class ChapterResult:
     truth: TruthData | None = None
     llm_calls: tuple[LLMCallRecord, ...] = ()
     error: str | None = None
+    audit_result: AuditResult | None = None
 
 
 # ── Book & creation models ──────────────────────────────────

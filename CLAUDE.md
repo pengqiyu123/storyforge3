@@ -4,6 +4,15 @@
 
 StoryForge3 is a Chinese web-novel full-workflow creation engine. It supports creating a book from a blank page, building world and character context, planning volumes, and producing single or multi-chapter runs through audit, revision, truth extraction, and export.
 
+## North Star — novel production is the point (2026-06-15)
+
+> The engine exists to **produce serialized Chinese web novels** (currently 《别打了，我帮你们翻译还不行吗?》). **The engine is the servant, the novel is the product.** Every engine capability (pipeline / truth / audit / Run Viewer / gating / reconcile) serves "sustainably produce readable chapters."
+
+- **Success metric = the novel produced** (chapter count, quality, continuity, readability) — *not* engine feature count or test-pass count. Tests are a means, not the goal.
+- **Direction (2026-06-15 correction, authoritative):** after P1-3 (gating, the last engine piece), **pivot to real multi-chapter production** of 《别打了》. Producing chapters does **not** wait for AutoDirector — the agent can drive the API now.
+- **Engine expansion is DEFER** (P-IMP-2 / P-IMP-4 / Phase 10B AutoDirector / 10C) until a real production dogfood exposes an actual blocker. No speculative feature-building.
+- See [`docs/reviews/pm-direction-correction-2026-06-15.md`](docs/reviews/pm-direction-correction-2026-06-15.md) for the full diagnosis + scope rules.
+
 ## Product Direction — agent-mode ONLY (manual mode deferred)
 
 > **Decision (2026-06-14, owner-confirmed).** This is recorded here to prevent drift.

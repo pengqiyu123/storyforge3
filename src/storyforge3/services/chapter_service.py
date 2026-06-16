@@ -18,7 +18,7 @@ from storyforge3.fanfic.prompt_sections import build_character_voice_profiles, b
 from storyforge3.llm.chunked_generator import ChunkedGenerator
 from storyforge3.llm.factory import create_llm_service
 from storyforge3.logging.pipeline_logger import PipelineLogger
-from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, Character, CharacterRole, FanficCanon, FanficMode, WorldConfig
+from storyforge3.models import AuditResult, ChapterIntent, ChapterResult, ChapterStatus, Character, CharacterRole, FanficCanon, FanficMode, RuleCategory, RuleResult, RuleSeverity, WorldConfig
 from storyforge3.prompts.registry import PromptRegistry, create_default_registry
 from storyforge3.services.export_service import ExportService
 from storyforge3.services.length_normalizer import LengthNormalizationResult, LengthNormalizer
@@ -29,18 +29,6 @@ from storyforge3.truth.extractor import TruthExtractor
 from storyforge3.truth.retriever import TruthRetriever
 from storyforge3.truth.store import TruthStore
 from storyforge3.workflow import ChapterWorkflow
-
-
-CHAPTER_DRAFT_PROMPT = """你是中文网文正文作者。根据章节目标、世界观、角色和前文上下文，直接输出章节正文。
-写作约束：
-- 每个场景必须推进行动、信息或关系变化，不写空转说明。
-- 角色对话要有辨识度，不能所有人都一个腔调；对话前后用动作承接。
-- 用动作、表情、环境替代直白情绪描述。
-- 不要用“他感到”“他意识到”“他明白了”“心中一震”“恍然大悟”等内心独白标记词。
-- 不要用“总的来说”“综上所述”“就这样”等总结性语言。
-- 场景切换要自然，不要硬用“与此同时”“另一边”跳切。
-- 不要出现系统实现、工程术语、提示词、审计规则或解释性说明。
-只输出章节正文，不要 Markdown 包装。"""
 
 
 class ChapterService:
@@ -96,7 +84,8 @@ class ChapterService:
         on_chunk: Callable[[str, int, int], Awaitable[None]] | None = None,
     ) -> str:
         intent = intent or self._load_plan(book_id, chapter_no) or await self.plan(book_id, chapter_no)
-        prompt = CHAPTER_DRAFT_PROMPT
+        template = self.prompt_registry.get_latest("compose")
+        prompt = self.prompt_registry.render_system_prompt(template, chapter_no=chapter_no)
         style_prompt = self._style_prompt_fragment(book_id)
         if style_prompt:
             prompt = f"{prompt}\n\n{style_prompt}"
@@ -141,6 +130,7 @@ class ChapterService:
         if text is None:
             raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
         audit = self.audit_runner.run_audit(chapter_no, text)
+        self._save_audit_result(book_id, audit)
         # Segmented pipeline: auditing a draft/revised chapter advances to AUDITED
         # so the agent can drive stage-by-stage (draft -> audit -> revise -> approve).
         self._advance_audit_state(book_id, chapter_no)
@@ -266,7 +256,8 @@ class ChapterService:
             truth = None
             if status in (ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED):
                 truth = self.truth_store.load(book_id, chapter_no)
-            return ChapterResult(book_id, chapter_no, status, f"第{chapter_no}章", text, truth=truth)
+            audit_result = self._status_audit_result(book_id, chapter_no, status, text)
+            return ChapterResult(book_id, chapter_no, status, f"第{chapter_no}章", text, truth=truth, audit_result=audit_result)
         if self._load_plan(book_id, chapter_no) is not None:
             return ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
         return None
@@ -365,6 +356,27 @@ class ChapterService:
             must_avoid=tuple(str(item) for item in data.get("must_avoid", ())),
             style_emphasis=tuple(str(item) for item in data.get("style_emphasis", ())),
         )
+
+    def _status_audit_result(self, book_id: str, chapter_no: int, status: ChapterStatus, text: str) -> AuditResult | None:
+        if status not in (
+            ChapterStatus.AUDITED,
+            ChapterStatus.NEEDS_REVISION,
+            ChapterStatus.REVISED,
+            ChapterStatus.APPROVED,
+            ChapterStatus.TRUTH_COMMITTED,
+            ChapterStatus.EXPORTED,
+        ):
+            return None
+        return self._load_audit_result(book_id, chapter_no) or self.audit_runner.run_audit(chapter_no, text)
+
+    def _save_audit_result(self, book_id: str, audit: AuditResult) -> None:
+        self.storage.write_json(self.paths.audit_result_file(book_id, audit.chapter_no), _audit_to_json(audit))
+
+    def _load_audit_result(self, book_id: str, chapter_no: int) -> AuditResult | None:
+        data = self.storage.read_json(self.paths.audit_result_file(book_id, chapter_no))
+        if not data:
+            return None
+        return _audit_from_json(data, chapter_no)
 
     def _advance_planned_state(self, book_id: str, chapter_no: int) -> None:
         machine = ChapterStateMachine(self.paths.chapter_states(book_id))
@@ -605,3 +617,66 @@ def _should_chunk_draft(target_chars: int | None) -> bool:
 
 def _content_fingerprint(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()[:8]
+
+
+def _enum_value(value: Any) -> str:
+    return value.value if hasattr(value, "value") else str(value)
+
+
+def _audit_to_json(audit: AuditResult) -> dict[str, Any]:
+    return {
+        "chapter_no": audit.chapter_no,
+        "passed": audit.passed,
+        "blocking_issues": list(audit.blocking_issues),
+        "warnings": list(audit.warnings),
+        "info": list(audit.info),
+        "rule_results": [
+            {
+                "rule_id": result.rule_id,
+                "passed": result.passed,
+                "severity": _enum_value(result.severity),
+                "category": _enum_value(result.category),
+                "message": result.message,
+                "detail": dict(result.detail),
+            }
+            for result in audit.rule_results
+        ],
+    }
+
+
+def _audit_from_json(data: dict[str, Any], chapter_no: int) -> AuditResult:
+    return AuditResult(
+        chapter_no=int(data.get("chapter_no", chapter_no)),
+        passed=bool(data.get("passed", False)),
+        blocking_issues=tuple(data.get("blocking_issues", ())),
+        warnings=tuple(data.get("warnings", ())),
+        info=tuple(data.get("info", ())),
+        rule_results=tuple(_rule_result_from_json(item) for item in data.get("rule_results", ())),
+    )
+
+
+def _rule_result_from_json(data: dict[str, Any]) -> RuleResult:
+    return RuleResult(
+        rule_id=str(data.get("rule_id", "")),
+        passed=bool(data.get("passed", False)),
+        severity=_rule_severity(data.get("severity", RuleSeverity.INFO.value)),
+        category=_rule_category(data.get("category", RuleCategory.META.value)),
+        message=str(data.get("message", "")),
+        detail=dict(data.get("detail", {})),
+    )
+
+
+def _rule_severity(value: Any) -> RuleSeverity:
+    raw = str(value)
+    try:
+        return RuleSeverity(raw.lower())
+    except ValueError:
+        return RuleSeverity[raw.upper()]
+
+
+def _rule_category(value: Any) -> RuleCategory:
+    raw = str(value)
+    try:
+        return RuleCategory(raw.lower())
+    except ValueError:
+        return RuleCategory[raw.upper()]

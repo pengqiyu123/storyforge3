@@ -8,7 +8,7 @@ from pathlib import Path
 
 from storyforge3.config import StoryForge3Config
 from storyforge3.models import ChapterIntent, ChapterStatus, TruthData
-from storyforge3.services.chapter_service import CHAPTER_DRAFT_PROMPT, ChapterService
+from storyforge3.services.chapter_service import ChapterService
 from storyforge3.state.machine import ChapterStateMachine
 from storyforge3.style.imitation import StyleAnalyzer
 from storyforge3.truth.database import TruthDatabase, TruthEntry
@@ -273,6 +273,23 @@ def test_chapter_service_get_status_returns_planned_without_text(config: StoryFo
     assert result.text == ""
 
 
+
+
+def test_chapter_service_get_status_exposes_audit_result_after_audit(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    service.storage.write_text(service.paths.chapter_file("lurenjia", 8), "林默听见门外传来提示音。")
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    for status in (ChapterStatus.PLANNED, ChapterStatus.DRAFTED):
+        machine.advance("lurenjia", 8, status)
+
+    audit = run(service.audit("lurenjia", 8))
+    result = run(service.get_status("lurenjia", 8))
+
+    assert result is not None
+    assert result.status == ChapterStatus.AUDITED
+    assert result.audit_result == audit
+    assert service.paths.audit_result_file("lurenjia", 8).is_file()
+
 def test_chapter_service_get_status_loads_truth_after_truth_committed(config: StoryForge3Config, book_workspace: Path) -> None:
     service = ChapterService(config, llm=MockClient())
     service.storage.write_text(service.paths.chapter_file("lurenjia", 8), "林默确认事实。")
@@ -361,15 +378,7 @@ def test_chapter_service_plan_updates_current_chapter(config: StoryForge3Config,
     assert meta["current_chapter"] == 8
 
 
-def test_chapter_draft_prompt_contains_writing_constraints() -> None:
-    assert "辨识度" in CHAPTER_DRAFT_PROMPT
-    assert "动作" in CHAPTER_DRAFT_PROMPT
-    assert "他感到" in CHAPTER_DRAFT_PROMPT
-    assert "总结性语言" in CHAPTER_DRAFT_PROMPT
-    assert "工程术语" in CHAPTER_DRAFT_PROMPT
-
-
-def test_chapter_draft_passes_prompt_to_llm(config: StoryForge3Config, book_workspace: Path) -> None:
+def test_chapter_draft_uses_registry_compose_prompt(config: StoryForge3Config, book_workspace: Path) -> None:
     write_book_meta(book_workspace, target_chars=700)
     llm = DraftLengthMockClient(draft_text=chinese_text(700), normalized_text=chinese_text(700))
     service = ChapterService(config, llm=llm)
@@ -377,7 +386,8 @@ def test_chapter_draft_passes_prompt_to_llm(config: StoryForge3Config, book_work
     run(service.draft("lurenjia", 8, ChapterIntent(8, "进入检测中心")))
 
     assert llm.calls[0]["task_name"] == "chapter_draft"
-    assert llm.calls[0]["system_prompt"].startswith(CHAPTER_DRAFT_PROMPT)
+    assert "续写第8章" in llm.calls[0]["system_prompt"]
+    assert "只输出章节正文" in llm.calls[0]["system_prompt"]
 
 
 def test_chapter_service_draft_normalizes_text_outside_hard_range(config: StoryForge3Config, book_workspace: Path) -> None:

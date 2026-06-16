@@ -44,6 +44,9 @@ class StoragePaths:
     def run_dir(self, book_id: str, chapter_no: int) -> Path:
         return self.chapter_dir(book_id, chapter_no) / "runs"
 
+    def audit_result_file(self, book_id: str, chapter_no: int) -> Path:
+        return self.chapter_dir(book_id, chapter_no) / "audit_result.json"
+
     def run_file(self, book_id: str, chapter_no: int, run_id: str) -> Path:
         return self.run_dir(book_id, chapter_no) / f"{run_id}.json"
 

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Check, Pencil, Save, X } from "lucide-react";
 import type { ChapterIntent, ChapterResult } from "@/api/chapters";
+import { AuditResultPanel } from "@/components/chapters/AuditResultPanel";
+import { RevisionDiffPanel } from "@/components/chapters/RevisionDiffPanel";
 import { ChapterEditor } from "@/components/editor/ChapterEditor";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -36,11 +38,11 @@ interface ChapterPipelineProps {
 }
 
 const stages = [
-  { key: "plan", label: "规划", done: ["planned", "drafted", "audited", "needs_revision", "revised", "approved", "exported"] },
-  { key: "draft", label: "起草", done: ["drafted", "audited", "needs_revision", "revised", "approved", "exported"] },
-  { key: "audit", label: "审计", done: ["audited", "needs_revision", "revised", "approved", "exported"] },
-  { key: "revise", label: "修订", done: ["revised", "approved", "exported"] },
-  { key: "approve", label: "批准", done: ["approved", "exported"] },
+  { key: "plan", label: "规划", done: ["planned", "drafted", "audited", "needs_revision", "revised", "approved", "truth_committed", "exported"] },
+  { key: "draft", label: "起草", done: ["drafted", "audited", "needs_revision", "revised", "approved", "truth_committed", "exported"] },
+  { key: "audit", label: "审计", done: ["audited", "needs_revision", "revised", "approved", "truth_committed", "exported"] },
+  { key: "revise", label: "修订", done: ["revised", "approved", "truth_committed", "exported"] },
+  { key: "approve", label: "批准", done: ["approved", "truth_committed", "exported"] },
   { key: "export", label: "导出", done: ["exported"] }
 ] as const;
 
@@ -52,6 +54,7 @@ const statusLabels: Record<string, string> = {
   needs_revision: "需修订",
   revised: "已修订",
   approved: "已批准",
+  truth_committed: "Truth 已提交",
   exported: "已导出",
   needs_review: "需复核"
 };
@@ -255,9 +258,30 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
           </div>
         ) : null}
 
-        {activeStage === "audit" ? <PlaceholderView label="审计结果" status={status} readyAt={["audited", "needs_revision", "revised", "approved", "exported"]} /> : null}
-        {activeStage === "revise" ? <PlaceholderView label="修订 diff" status={status} readyAt={["revised", "approved", "exported"]} /> : null}
-        {activeStage === "approve" ? <PlaceholderView label="批准记录" status={status} readyAt={["approved", "exported"]} /> : null}
+        {activeStage === "audit" ? (
+          result?.audit_result ? (
+            <AuditResultPanel result={result.audit_result} />
+          ) : (
+            <PlaceholderView label="审计结果" status={status} readyAt={["audited", "needs_revision", "revised", "approved", "truth_committed", "exported"]} />
+          )
+        ) : null}
+        {activeStage === "revise" ? (
+          result?.revision_diff ? (
+            <RevisionDiffPanel diff={result.revision_diff} />
+          ) : (
+            <PlaceholderView label="修订 diff" status={status} readyAt={["revised", "approved", "truth_committed", "exported"]} />
+          )
+        ) : null}
+        {activeStage === "approve" ? (
+          ["approved", "truth_committed", "exported"].includes(status) ? (
+            <div className="rounded-md border border-zinc-800/80 bg-zinc-950/80 p-4 text-sm text-zinc-300">
+              <p className="font-medium text-zinc-100">批准记录</p>
+              <p className="mt-1 text-zinc-500">本章已批准。Truth 提取和导出已自动执行。</p>
+            </div>
+          ) : (
+            <PlaceholderView label="批准记录" status={status} readyAt={["approved", "truth_committed", "exported"]} />
+          )
+        ) : null}
 
         {activeStage === "export" ? (
           <div className="space-y-3">

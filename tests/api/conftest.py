@@ -252,7 +252,8 @@ class FakeChapterService:
         return result
 
     async def approve(self, book_id: str, chapter_no: int) -> ChapterResult:
-        result = ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "已确认正文")
+        previous_audit = self.status_result.audit_result or self.status_result.audit if self.status_result is not None else None
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED, f"第{chapter_no}章", "已确认正文", audit_result=previous_audit)
         self.status_result = result
         return result
 

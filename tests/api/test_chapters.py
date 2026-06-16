@@ -104,6 +104,7 @@ def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_servi
     approved = client.post(f"/api/books/{book_id}/chapters/3/approve")
     assert approved.status_code == 200
     assert approved.json()["data"]["status"] == "truth_committed"
+    assert approved.json()["data"]["audit_result"]["warnings"] == ["节奏可继续加强"]
 
     exported = client.post(f"/api/books/{book_id}/chapters/3/export", json={"fmt": "md"})
     assert exported.status_code == 200

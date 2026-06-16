@@ -6,6 +6,7 @@ import { inconsistentReasonLabel } from "@/api/reconcile";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { ChapterPipeline } from "./ChapterPipeline";
+import { useChapterStatus } from "@/hooks/useChapters";
 import { cn } from "@/lib/utils";
 
 interface ChapterCardProps {
@@ -64,7 +65,8 @@ export function ChapterCard({ bookId, chapter }: ChapterCardProps) {
   const [open, setOpen] = useState(false);
   const chapterNo = chapter.chapter_no;
   const status = chapter.status === "inconsistent" ? "inconsistent" : resolvedStatus(chapter);
-  const result = fallbackResult(bookId, chapter);
+  const statusQuery = useChapterStatus(bookId, chapterNo, open);
+  const result = statusQuery.data ?? fallbackResult(bookId, chapter);
 
   return (
     <Card className="overflow-hidden" data-testid={`chapter-card-${chapterNo}`}>
