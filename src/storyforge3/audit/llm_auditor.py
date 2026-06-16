@@ -8,7 +8,18 @@ from storyforge3.models import Character, TruthData, WorldConfig
 from storyforge3.prompts.registry import PromptRegistry
 
 
-AUDIT_DIMENSIONS = ("OOC", "战力一致性", "信息边界", "情节逻辑")
+AUDIT_DIMENSIONS = (
+    "OOC 检查",
+    "战力一致性",
+    "信息边界",
+    "情节逻辑",
+    "节奏检查",
+    "钩子检查",
+    "断章检查",
+    "Show Don't Tell",
+    "AI 痕迹",
+    "流水账检查",
+)
 ISSUE_SEVERITIES = {"critical", "warning", "info"}
 
 
@@ -82,6 +93,8 @@ class LLMAuditor:
         if severity not in ISSUE_SEVERITIES:
             severity = "warning"
         dimension = str(data.get("dimension") or "情节逻辑").strip()
+        aliases = {"OOC": "OOC 检查"}
+        dimension = aliases.get(dimension, dimension)
         if dimension not in dimensions:
             dimension = "情节逻辑"
         return LLMAuditIssue(

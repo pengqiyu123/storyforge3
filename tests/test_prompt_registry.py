@@ -52,10 +52,12 @@ def test_default_registry_has_dedicated_plan_template() -> None:
     template = registry.get_latest("plan")
     rendered = registry.render_system_prompt(template, chapter_no=8)
 
-    assert template.prompt_id == "plan-v1"
+    assert template.prompt_id == "plan-v2"
+    assert template.version == 2
     assert template.generation_config["temperature"] == 0.5
-    assert "规划第8章" in rendered
-    assert "不要输出章节正文" in rendered
+    assert "钩子账" in rendered
+    assert "### 本章目标" in rendered
+    assert "不要输出正文" in rendered
 
 
 def test_truth_extract_latest_template_declares_required_schema() -> None:
@@ -69,6 +71,8 @@ def test_truth_extract_latest_template_declares_required_schema() -> None:
     assert "character_updates" in rendered
     assert "relationship_updates" in rendered
     assert "hook_updates" in rendered
+    assert "action 字段" in rendered
+    assert "planted/advanced/resolved" in rendered
     assert "irreversible_facts" in rendered
     assert "notes" in rendered
 
@@ -78,10 +82,14 @@ def test_compose_template_includes_continuity_constraints() -> None:
     template = registry.get_latest("compose")
     rendered = registry.render_system_prompt(template, chapter_no=8)
 
+    assert template.prompt_id == "compose-v2"
+    assert template.version == 2
     assert "上一章具体动作" in rendered
-    assert "不跳时间" in rendered
-    assert "不重复上一章" in rendered
-    assert "无来源大设定" in rendered
+    assert "写作铁律" in rendered
+    assert "看点密集度" in rendered
+    assert "断章规则" in rendered
+    assert "去 AI 味铁律" in rendered
+    assert "逻辑自洽" in rendered
 
 
 def test_render_warns_for_missing_placeholders() -> None:

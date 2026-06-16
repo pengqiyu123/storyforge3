@@ -248,8 +248,20 @@ def test_chapter_service_plan_uses_registry_plan_template(config: StoryForge3Con
     assert intent.goal == "林默进入检测中心。"
     call = llm.calls[0]
     assert call["task_name"] == "chapter_plan"
-    assert "规划第8章" in call["system_prompt"]
-    assert "不要输出章节正文" in call["system_prompt"]
+    assert "钩子账" in call["system_prompt"]
+    assert "### 本章目标" in call["system_prompt"]
+    assert "不要输出正文" in call["system_prompt"]
+
+
+def test_chapter_service_extract_goal_from_plan_v2_outline() -> None:
+    outline = """### 本章目标
+一句话：沈听澜查清木匣封蜡被谁调换。
+
+### 关键情节点
+- 赫鲁拦住巡夜队。
+"""
+
+    assert ChapterService._extract_goal(outline) == "沈听澜查清木匣封蜡被谁调换。"
 
 
 def test_chapter_service_plan_is_idempotent(config: StoryForge3Config, book_workspace: Path) -> None:

@@ -297,7 +297,24 @@ class ChapterService:
 
     @staticmethod
     def _extract_goal(outline: str) -> str:
-        goal = outline.replace("本章目标：", "").strip()
+        lines = [line.strip() for line in outline.splitlines()]
+        for index, line in enumerate(lines):
+            if line.startswith("### 本章目标"):
+                for candidate in lines[index + 1 :]:
+                    if candidate and not candidate.startswith("### "):
+                        return ChapterService._clean_goal_line(candidate)
+                break
+        for line in lines:
+            if line.startswith("本章目标") or line.startswith("一句话"):
+                return ChapterService._clean_goal_line(line)
+        return ChapterService._clean_goal_line(outline)
+
+    @staticmethod
+    def _clean_goal_line(value: str) -> str:
+        goal = value.strip()
+        for prefix in ("本章目标：", "本章目标:", "一句话：", "一句话:"):
+            if goal.startswith(prefix):
+                goal = goal[len(prefix) :].strip()
         return goal[:50] or "推进主线"
 
     def _workflow_status(self, book_id: str, chapter_no: int):

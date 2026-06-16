@@ -1,6 +1,6 @@
 # StoryForge3 当前状态
 
-> 更新时间：2026-06-15
+> 更新时间：2026-06-16
 > 职责：只记录当前事实、质量基线和进行中阶段。历史流水见 `docs/history.md`，后续计划见 `docs/next.md`。
 
 ## 当前定位
@@ -27,6 +27,9 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 | **P-DISCARD-1（2026-06-15）** | 章节 discard 原语（5 层备份→删除→reconcile）+ API preview/DELETE + 幂等 | **完成** |
 | **P-FIX-1（2026-06-15）** | `get_status()` 填充 truth + APPROVED 状态 truth 文件 fallback → 修复 export 门禁误拦 | **完成** |
 | **P-FIX-2（2026-06-15）** | `_stages_from()` 改 inclusive resume + NEEDS_REVIEW 门禁补全 `{"plan","draft","audit"}` | **完成** |
+| **P-FIX-3（2026-06-15）** | `_post_with_retries` 加 RemoteProtocolError retry（P-FIX-3） | **完成** |
+| **P-UI-FIX-1（2026-06-16）** | 前端可见性修复：ChapterCard 接入 useChapterStatus + 挂载 AuditResultPanel/RevisionDiffPanel + GET /status 扩展 audit_result | **完成** |
+| **P-PROMPT-P0（2026-06-16）** | 提示词结构清理：删除 CHAPTER_DRAFT_PROMPT + 清理 3 个孤儿模板 + _SafeDict warning | **完成** |
 
 ## P1 闭环声明
 
@@ -46,8 +49,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前 |
 |----|------|
-| 后端测试 | **597 passed**（P-FIX-1/2 后；+8 新测试） |
-| 前端测试 | **111 passed**（P-IMP-3b 后；含 validity 徽标 + 阻断指示器 + Run Viewer） |
+| 后端测试 | **600 passed**（P-UI-FIX-1 + P-PROMPT-P0 后；commit `02be8d7`） |
+| 前端测试 | **111 passed**（P-UI-FIX-1 后） |
 | Rust 测试 | 5 既有基线；本机无 cargo，需 CI 验证 |
 | Python lint | `ruff check .` clean |
 | Frontend build | `pnpm build` clean，仅 CodeMirror 大 chunk 警告 |
@@ -65,6 +68,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 ## 已知边界
 
+- **Tech Debt**：`ChapterResult` 有 `audit` 和 `audit_result` 双字段共存（P-UI-FIX-1 遗留，后续统一为 `audit_result`）。
+- **提示词内容待升级**：`compose-v1` 内容偏简陋（5 条防御性约束），需 P-PROMPT-P1 升级为 compose-v2（含爽点密度/断章规则/去AI味等）。
 - 审计/修订/批准/导出的**详细结果**在 UI 还看不到（这些产物未做"可加载持久化"，agent 跑完结果只回到 API 调用方）。规划/起草不受影响。
 - SSE 仅最近 100 条内存回放；P1 改 RunRecord 为真相源。
 - 桌面 Tauri `build.rs` 在 CI 仍失败（独立 follow-up）。

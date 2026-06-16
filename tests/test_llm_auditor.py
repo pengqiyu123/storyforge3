@@ -57,7 +57,7 @@ def test_llm_auditor_parses_structured_issues() -> None:
         issues=(
             LLMAuditIssue(
                 severity="critical",
-                dimension="OOC",
+                dimension="OOC 检查",
                 description="林默突然主动挑衅，和谨慎设定冲突。",
                 suggestion="改为被迫回应。",
             ),
@@ -65,14 +65,29 @@ def test_llm_auditor_parses_structured_issues() -> None:
     )
     assert llm.calls[0]["task_name"] == "llm_audit"
     assert llm.calls[0]["model"] == "audit-model"
-    assert {"OOC", "战力一致性", "信息边界", "情节逻辑"}.issubset(set(llm.calls[0]["payload"]["dimensions"]))
+    assert {
+        "OOC 检查",
+        "战力一致性",
+        "信息边界",
+        "情节逻辑",
+        "节奏检查",
+        "钩子检查",
+        "断章检查",
+        "Show Don't Tell",
+        "AI 痕迹",
+        "流水账检查",
+    }.issubset(set(llm.calls[0]["payload"]["dimensions"]))
 
 
 def test_default_registry_has_llm_audit_prompt() -> None:
     registry = create_default_registry()
     template = registry.get_latest("llm_audit")
     rendered = registry.render_system_prompt(template)
-    assert "OOC" in rendered
+    assert template.prompt_id == "llm-audit-v2"
+    assert template.version == 2
+    assert "OOC 检查" in rendered
+    assert "节奏检查" in rendered
+    assert "AI 痕迹" in rendered
     assert "结构化 JSON" in rendered
 
 
@@ -108,6 +123,6 @@ def test_chapter_service_run_llm_audit_loads_book_context(config: StoryForge3Con
     TruthStore(config.books_dir).save("book", TruthData(1, "runtime_native", ("林默预约检测。",), (), (), (), (), ()))
     llm = MockAuditLLM()
     result = run(ChapterService(config, llm=llm, storage=storage, paths=paths).run_llm_audit("book", 2, "林默进入检测中心。"))
-    assert result.issues[0].dimension == "OOC"
+    assert result.issues[0].dimension == "OOC 检查"
     assert llm.calls[0]["payload"]["world_rules"] == ["能力不能凭空升级"]
     assert llm.calls[0]["payload"]["previous_truth"] == ["林默预约检测。"]

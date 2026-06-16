@@ -1,7 +1,38 @@
 # StoryForge3 阶段历史
 
-> 更新时间：2026-06-15
+> 更新时间：2026-06-16
 > 职责：记录已完成阶段。当前事实见 `docs/current.md`，后续计划见 `docs/next.md`。
+
+## P-UI-FIX-1 + P-PROMPT-P0：前端可见性 + 提示词结构清理（2026-06-16）
+
+状态：完成。后端 600 passed / 前端 111 passed / ruff clean / build clean。commit `02be8d7`。
+
+**P-UI-FIX-1 前端可见性修复**：
+
+- **ChapterCard 接入真实数据**（`ChapterCard.tsx:68`）：展开时调用 `useChapterStatus(bookId, chapterNo, open)`，`enabled=open` 控制未展开不发请求。替代 `fallbackResult(text:"")` → 修复所有章节显示"尚未起草"的 Bug。
+- **挂载 AuditResultPanel**（`ChapterPipeline.tsx:261-267`）：audit tab 从 PlaceholderView 改为 `<AuditResultPanel>`，数据来自 `result.audit_result`。
+- **挂载 RevisionDiffPanel**（`ChapterPipeline.tsx:268-274`）：revise tab 从 PlaceholderView 改为 `<RevisionDiffPanel>`，数据来自 `result.revision_diff`。
+- **批准 tab 替换为轻量记录视图**（`ChapterPipeline.tsx:275-284`）：显示"本章已批准。Truth 提取和导出已自动执行。"
+- **后端 GET /status 扩展 audit_result**（`chapter_service.py:256-258`）：`get_status()` 在 AUDITED 及后续状态加载持久化 AuditResult。`_save_audit_result()` / `_load_audit_result()` / `_audit_to_json()` / `_audit_from_json()` 序列化支持。
+- **ChapterResult + API 响应模型** 新增 `audit_result: AuditResult | None` 字段。
+
+**P-PROMPT-P0 提示词结构清理**：
+
+- **统一 draft 双轨制**：删除 `chapter_service.py` 内联 `CHAPTER_DRAFT_PROMPT`（7 条写作约束），`draft()` 改为 `prompt_registry.get_latest("compose")` + `render_system_prompt(template, chapter_no=chapter_no)`。
+- **清理 3 个孤儿模板**：从 `registry.py` 删除 `audit-v1`（未被引用）、`length-normalize-v1`（未使用）、`truth-extract-v1`（被 v2 取代）。注册表从 10 → 7 个活跃模板。
+- **修复 _SafeDict 静默失败**：`_SafeDict.__missing__()` 新增 `warnings.warn()`，占位符未定义时输出 warning 日志但仍返回 `{key}`（向后兼容）。
+- **测试更新**：删除 `test_chapter_draft_prompt_contains_writing_constraints`，替换为 `test_chapter_draft_uses_registry_compose_prompt`。新增 `test_default_registry_contains_only_active_templates`（7 模板断言）+ `test_render_warns_for_missing_placeholders`。
+
+**PM 核验**：逐行核验 4 个 P0 项全部通过。发现工作区混合了 P-UI-FIX-1 未提交改动（audit_result 持久化），两者代码交织无法拆分，合并为一次提交。
+
+## P-PROMPT 调研：提示词基线 + 参考项目对比 + 优化方案（2026-06-16）
+
+状态：调研完成。
+
+- 联网调研 2025-2026 AI 小说写作提示词最佳实践（Context Engineering / 中文网文方法论共识）。
+- SF3 提示词基线诊断：10 个注册表模板 + 3 处散落内联，5 个结构性缺陷（双轨制/孤儿/静默失败/未外部化/缺网文维度）。
+- 5 个参考项目原文对比：InkOS（最完整工业化，37 审计维度/爽点密度/钩子账本/去AI味铁律）、AI-Novel-Writing-Assistant（最规范工程范式，PromptAsset 注册表/context 优先级）、snowflake-fiction（最详方法论，5 类钩子+密度公式+黄金三章）、91Writing（反面样本）。
+- 输出 3 份文档：`docs/research/prompt-optimization-research.md`（基线）、`docs/research/prompt-optimization-plan.md`（P0/P1/P2 方案）、`docs/research/frontend-stage-display-and-docs-gap-report.md`（前端调研）。
 
 ## P-FIX-1 + P-FIX-2：门禁修复 + Pipeline Resume 修复（2026-06-15）
 

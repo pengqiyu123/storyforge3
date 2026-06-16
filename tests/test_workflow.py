@@ -204,8 +204,9 @@ def test_workflow_step_plan_uses_registry_plan_template(config, book_workspace: 
     assert plan == "第8章计划"
     call = client.calls[0]
     assert call["task_name"] == "plan"
-    assert "规划第8章" in call["system_prompt"]
-    assert "不要输出章节正文" in call["system_prompt"]
+    assert "钩子账" in call["system_prompt"]
+    assert "### 本章目标" in call["system_prompt"]
+    assert "不要输出正文" in call["system_prompt"]
     assert "只输出章节正文" not in call["system_prompt"]
 
 

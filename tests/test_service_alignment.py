@@ -154,7 +154,7 @@ def test_prompt_service_get_latest() -> None:
     template = PromptService(create_default_registry()).get("compose")
 
     assert template.task_type == "compose"
-    assert template.version == 1
+    assert template.version == 2
 
 
 def test_prompt_service_list_templates() -> None:
