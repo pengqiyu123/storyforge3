@@ -10,6 +10,10 @@ const planState = vi.hoisted(() => ({ data: null as ChapterIntent | null }));
 const runRecordState = vi.hoisted(() => ({ data: null as RunRecord | null }));
 const updateMutateAsync = vi.fn();
 const cancelMutateAsync = vi.fn();
+const rePlanMutateAsync = vi.fn();
+const reAuditMutateAsync = vi.fn();
+const unexportMutateAsync = vi.fn();
+const mutationPending = vi.hoisted(() => ({ rePlan: false, reAudit: false, unexport: false }));
 const pipelineEventState = vi.hoisted(() => ({
   current: undefined as
     | ((event: {
@@ -25,7 +29,10 @@ const pipelineEventState = vi.hoisted(() => ({
 
 vi.mock("@/hooks/useChapters", () => ({
   useChapterPlanState: () => planState,
-  useChapterUpdateText: () => ({ mutateAsync: updateMutateAsync, isPending: false })
+  useChapterUpdateText: () => ({ mutateAsync: updateMutateAsync, isPending: false }),
+  useRePlan: () => ({ mutateAsync: rePlanMutateAsync, isPending: mutationPending.rePlan }),
+  useReAudit: () => ({ mutateAsync: reAuditMutateAsync, isPending: mutationPending.reAudit }),
+  useUnexport: () => ({ mutateAsync: unexportMutateAsync, isPending: mutationPending.unexport })
 }));
 
 vi.mock("@/hooks/usePipelineEvents", () => ({
@@ -92,6 +99,12 @@ describe("ChapterPipeline (view-only Run Viewer)", () => {
     runRecordState.data = null;
     updateMutateAsync.mockReset();
     cancelMutateAsync.mockReset();
+    rePlanMutateAsync.mockReset();
+    reAuditMutateAsync.mockReset();
+    unexportMutateAsync.mockReset();
+    mutationPending.rePlan = false;
+    mutationPending.reAudit = false;
+    mutationPending.unexport = false;
     pipelineEventState.current = undefined;
   });
 
@@ -181,6 +194,62 @@ describe("ChapterPipeline (view-only Run Viewer)", () => {
     });
     expect(screen.getByLabelText("章节正文")).toHaveValue("第一段。\n\n第二段。");
     expect(screen.getByText("正在生成（流式）…")).toBeInTheDocument();
+  });
+
+  it("shows modify-loop buttons by chapter status", () => {
+    const exported = renderPipeline("exported", "完成。");
+    expect(screen.getByRole("button", { name: "取消导出" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新审计" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "重新规划" })).not.toBeInTheDocument();
+    exported.unmount();
+
+    renderPipeline("needs_review", "待复核。");
+    expect(screen.getByRole("button", { name: "重新审计" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "重新规划" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "取消导出" })).not.toBeInTheDocument();
+  });
+
+  it("calls modify-loop operations from the header buttons", async () => {
+    rePlanMutateAsync.mockResolvedValue({ ok: true });
+    reAuditMutateAsync.mockResolvedValue({ ok: true });
+    unexportMutateAsync.mockResolvedValue({ ok: true });
+
+    const exported = renderPipeline("exported", "完成。");
+    fireEvent.click(screen.getByRole("button", { name: "取消导出" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新审计" }));
+
+    await waitFor(() => expect(unexportMutateAsync).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(reAuditMutateAsync).toHaveBeenCalledTimes(1));
+    exported.unmount();
+
+    renderPipeline("planned", "");
+    fireEvent.click(screen.getByRole("button", { name: "重新规划" }));
+
+    await waitFor(() => expect(rePlanMutateAsync).toHaveBeenCalledTimes(1));
+  });
+
+  it("disables modify-loop buttons while requests are pending", () => {
+    mutationPending.rePlan = true;
+    mutationPending.reAudit = true;
+    mutationPending.unexport = true;
+
+    const exported = renderPipeline("exported", "完成。");
+
+    expect(screen.getByRole("button", { name: "取消中..." })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "审计中..." })).toBeDisabled();
+    exported.unmount();
+
+    renderPipeline("needs_review", "待复核。");
+    expect(screen.getByRole("button", { name: "规划中..." })).toBeDisabled();
+  });
+
+  it("shows modify-loop operation errors", async () => {
+    reAuditMutateAsync.mockRejectedValue(new Error("服务不可用"));
+
+    renderPipeline("drafted", "林默推开门。");
+    fireEvent.click(screen.getByRole("button", { name: "重新审计" }));
+
+    expect(await screen.findByText("重新审计失败: 服务不可用")).toBeInTheDocument();
   });
 
   it("edits and saves the draft text", async () => {

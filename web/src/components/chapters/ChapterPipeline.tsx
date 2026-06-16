@@ -11,7 +11,7 @@ import { LiveStage } from "@/components/chapters/LiveStage";
 import { PipelineProgress } from "@/components/chapters/PipelineProgress";
 import { RunTrack } from "@/components/chapters/RunTrack";
 import { ExportPreviewDialog } from "@/components/export/ExportPreviewDialog";
-import { useChapterPlanState, useChapterUpdateText } from "@/hooks/useChapters";
+import { useChapterPlanState, useChapterUpdateText, useReAudit, useRePlan, useUnexport } from "@/hooks/useChapters";
 import { usePipelineEvents } from "@/hooks/usePipelineEvents";
 import { useCancelRun, useRunRecord } from "@/hooks/useRunRecord";
 import { useRunEvents } from "@/hooks/useRunEvents";
@@ -59,12 +59,18 @@ const statusLabels: Record<string, string> = {
   needs_review: "需复核"
 };
 
+const reAuditStatuses = new Set(["needs_review", "drafted", "audited", "approved", "truth_committed", "exported"]);
+const rePlanStatuses = new Set(["planned", "drafted", "needs_review", "needs_revision", "revised"]);
+
 export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelineProps) {
   const status = String(result?.status ?? "empty").toLowerCase();
   const persistedPlan = useChapterPlanState(bookId, chapterNo);
   const runRecord = useRunRecord(bookId, chapterNo, status !== "exported" && status !== "empty");
   const cancelRun = useCancelRun(bookId, chapterNo);
   const updateText = useChapterUpdateText(bookId);
+  const rePlanOp = useRePlan(bookId, chapterNo);
+  const reAuditOp = useReAudit(bookId, chapterNo);
+  const unexportOp = useUnexport(bookId, chapterNo);
   const [activeStage, setActiveStage] = useState<string>("draft");
   const [lastEvent, setLastEvent] = useState("");
   const [lastPlan, setLastPlan] = useState<ChapterIntent | null>(null);
@@ -80,6 +86,9 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
   const dirty = editing && editText !== currentText;
   const isSaving = updateText.isPending;
   const running = Boolean(pipelineStage);
+  const showUnexport = status === "exported";
+  const showReAudit = reAuditStatuses.has(status);
+  const showRePlan = rePlanStatuses.has(status);
 
   useEffect(() => {
     if (persistedPlan.data) {
@@ -156,6 +165,33 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
     }
   }
 
+  async function handleRePlan() {
+    try {
+      await rePlanOp.mutateAsync();
+      setLastError("");
+    } catch (error) {
+      setLastError(`重新规划失败: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleReAudit() {
+    try {
+      await reAuditOp.mutateAsync();
+      setLastError("");
+    } catch (error) {
+      setLastError(`重新审计失败: ${errorMessage(error)}`);
+    }
+  }
+
+  async function handleUnexport() {
+    try {
+      await unexportOp.mutateAsync();
+      setLastError("");
+    } catch (error) {
+      setLastError(`取消导出失败: ${errorMessage(error)}`);
+    }
+  }
+
   useEffect(() => {
     if (!editing) {
       return undefined;
@@ -175,9 +211,24 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
       <CardHeader>
         <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
           <CardTitle className="text-base">第 {chapterNo} 章</CardTitle>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             <Badge variant="muted">{statusLabels[status] ?? status}</Badge>
             <span className="text-xs text-zinc-500">{result?.actual_chars ?? countChineseChars(currentText)} 字</span>
+            {showUnexport ? (
+              <Button variant="secondary" size="sm" disabled={unexportOp.isPending} onClick={handleUnexport}>
+                {unexportOp.isPending ? "取消中..." : "取消导出"}
+              </Button>
+            ) : null}
+            {showRePlan ? (
+              <Button variant="secondary" size="sm" disabled={rePlanOp.isPending} onClick={handleRePlan}>
+                {rePlanOp.isPending ? "规划中..." : "重新规划"}
+              </Button>
+            ) : null}
+            {showReAudit ? (
+              <Button variant="secondary" size="sm" disabled={reAuditOp.isPending} onClick={handleReAudit}>
+                {reAuditOp.isPending ? "审计中..." : "重新审计"}
+              </Button>
+            ) : null}
           </div>
         </div>
       </CardHeader>
@@ -366,6 +417,10 @@ function PlaceholderView({ label, status, readyAt }: { label: string; status: st
       </p>
     </div>
   );
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : "操作失败";
 }
 
 // Kept for backward compatibility (unit-tested). Paragraph-to-range mapping used by

@@ -108,6 +108,40 @@ export function useChapterExport(bookId: string) {
   return useChapterMutation(bookId, chaptersApi.exportChapter);
 }
 
+export function useRePlan(bookId: string, chapterNo: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => chaptersApi.rePlan(bookId, chapterNo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
+      queryClient.invalidateQueries({ queryKey: chapterPlanKey(bookId, chapterNo) });
+      queryClient.invalidateQueries({ queryKey: reconcileKey(bookId) });
+    }
+  });
+}
+
+export function useReAudit(bookId: string, chapterNo: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => chaptersApi.reAudit(bookId, chapterNo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
+      queryClient.invalidateQueries({ queryKey: reconcileKey(bookId) });
+    }
+  });
+}
+
+export function useUnexport(bookId: string, chapterNo: number) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => chaptersApi.unexport(bookId, chapterNo),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
+      queryClient.invalidateQueries({ queryKey: reconcileKey(bookId) });
+    }
+  });
+}
+
 export function useRunFullPipeline(bookId: string) {
   return useChapterMutation(bookId, chaptersApi.runFullPipeline);
 }

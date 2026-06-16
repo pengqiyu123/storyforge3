@@ -120,8 +120,10 @@ export const chaptersApi = {
   getStatus: (bookId: string, chapterNo: number) => api.get<ChapterResult>(`/api/books/${bookId}/chapters/${chapterNo}/status`),
   getPlan: (bookId: string, chapterNo: number) => api.get<ChapterIntent>(`/api/books/${bookId}/chapters/${chapterNo}/plan`),
   plan: (bookId: string, chapterNo: number) => api.post<ChapterIntent>(`/api/books/${bookId}/chapters/${chapterNo}/plan`, {}),
+  rePlan: (bookId: string, chapterNo: number) => api.post<ChapterIntent>(`/api/books/${bookId}/chapters/${chapterNo}/re-plan`, {}),
   draft: (bookId: string, chapterNo: number) => api.post<ChapterTextResponse>(`/api/books/${bookId}/chapters/${chapterNo}/draft`, {}),
   audit: (bookId: string, chapterNo: number) => api.post<AuditResult>(`/api/books/${bookId}/chapters/${chapterNo}/audit`, {}),
+  reAudit: (bookId: string, chapterNo: number) => api.post<AuditResult>(`/api/books/${bookId}/chapters/${chapterNo}/re-audit`, {}),
   llmAudit: (bookId: string, chapterNo: number, text: string) =>
     api.post<LlmAuditResult>(`/api/books/${bookId}/chapters/${chapterNo}/llm-audit`, { text }),
   normalize: (bookId: string, chapterNo: number, data: NormalizeRequest) =>
@@ -133,6 +135,7 @@ export const chaptersApi = {
   approve: (bookId: string, chapterNo: number) => api.post<ChapterResult>(`/api/books/${bookId}/chapters/${chapterNo}/approve`, {}),
   exportChapter: (bookId: string, chapterNo: number, fmt = "tomato_txt") =>
     api.post<{ path: string }>(`/api/books/${bookId}/chapters/${chapterNo}/export`, { fmt }),
+  unexport: (bookId: string, chapterNo: number) => api.post<ChapterResult>(`/api/books/${bookId}/chapters/${chapterNo}/unexport`, {}),
   exportPreview: (bookId: string, chapterNo: number, fmt = "tomato_txt") =>
     api.get<ExportPreview>(`/api/books/${bookId}/chapters/${chapterNo}/export-preview?fmt=${fmt}`),
   runFullPipeline: (bookId: string, chapterNo: number) => api.post<ChapterResult>(`/api/books/${bookId}/chapters/${chapterNo}/run`, {})
