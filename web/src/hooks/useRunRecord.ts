@@ -6,7 +6,7 @@ export function runRecordKey(bookId: string, chapterNo: number) {
   return ["run-record", bookId, chapterNo] as const;
 }
 
-export function useRunRecord(bookId: string | undefined, chapterNo: number | undefined) {
+export function useRunRecord(bookId: string | undefined, chapterNo: number | undefined, enabled = true) {
   return useQuery({
     queryKey: runRecordKey(bookId ?? "", chapterNo ?? 0),
     queryFn: async (): Promise<RunRecord | null> => {
@@ -20,7 +20,7 @@ export function useRunRecord(bookId: string | undefined, chapterNo: number | und
         throw error;
       }
     },
-    enabled: Boolean(bookId && chapterNo),
+    enabled: Boolean(enabled && bookId && chapterNo),
     retry: false
   });
 }

@@ -31,6 +31,18 @@ describe("useRunRecord", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/books/biedale/chapters/2/run", expect.any(Object));
   });
 
+  it("does not fetch when disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = createQueryClient();
+    const wrapper = createWrapper(queryClient);
+
+    const { result } = renderHook(() => useRunRecord("biedale", 2, false), { wrapper });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("treats a missing run record as idle", async () => {
     const fetchMock = vi.fn(async () =>
       new Response(

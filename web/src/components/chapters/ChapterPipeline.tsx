@@ -60,8 +60,9 @@ const statusLabels: Record<string, string> = {
 };
 
 export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelineProps) {
+  const status = String(result?.status ?? "empty").toLowerCase();
   const persistedPlan = useChapterPlanState(bookId, chapterNo);
-  const runRecord = useRunRecord(bookId, chapterNo);
+  const runRecord = useRunRecord(bookId, chapterNo, status !== "exported" && status !== "empty");
   const cancelRun = useCancelRun(bookId, chapterNo);
   const updateText = useChapterUpdateText(bookId);
   const [activeStage, setActiveStage] = useState<string>("draft");
@@ -78,7 +79,6 @@ export function ChapterPipeline({ bookId, chapterNo, result }: ChapterPipelinePr
   const hasText = currentText.trim().length > 0;
   const dirty = editing && editText !== currentText;
   const isSaving = updateText.isPending;
-  const status = String(result?.status ?? "empty").toLowerCase();
   const running = Boolean(pipelineStage);
 
   useEffect(() => {
