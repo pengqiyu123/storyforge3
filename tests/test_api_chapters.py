@@ -199,6 +199,108 @@ async def test_revise_response_includes_revision_diff(async_client):
 
 
 @pytest.mark.asyncio
+async def test_re_plan_endpoint_delegates_when_allowed(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        5,
+        ChapterStatus.DRAFTED,
+        "第5章",
+        "已有正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/5/re-plan")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["goal"] == "重规划主线"
+    assert api_chapter_service.re_plan_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_re_plan_endpoint_rejects_audited(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        5,
+        ChapterStatus.AUDITED,
+        "第5章",
+        "已有正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/5/re-plan")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert api_chapter_service.re_plan_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_re_audit_endpoint_delegates_from_exported(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        6,
+        ChapterStatus.EXPORTED,
+        "第6章",
+        "已有正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/6/re-audit")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["passed"] is True
+    assert api_chapter_service.re_audit_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_re_audit_endpoint_rejects_planned(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        6,
+        ChapterStatus.PLANNED,
+        "第6章",
+        "",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/6/re-audit")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert api_chapter_service.re_audit_calls == 0
+
+
+@pytest.mark.asyncio
+async def test_unexport_endpoint_delegates_only_from_exported(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        6,
+        ChapterStatus.EXPORTED,
+        "第6章",
+        "已有正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/6/unexport")
+
+    assert response.status_code == 200
+    assert response.json()["data"]["status"] == "approved"
+    assert api_chapter_service.unexport_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_unexport_endpoint_rejects_non_exported(async_client, api_chapter_service):
+    api_chapter_service.status_result = ChapterResult(
+        "chapter-api",
+        6,
+        ChapterStatus.TRUTH_COMMITTED,
+        "第6章",
+        "已有正文",
+    )
+
+    response = await async_client.post("/api/books/chapter-api/chapters/6/unexport")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "ACTION_NOT_ALLOWED"
+    assert api_chapter_service.unexport_calls == 0
+
+
+@pytest.mark.asyncio
 async def test_approve_with_blocking_audit_returns_action_not_allowed(async_client, api_chapter_service):
     api_chapter_service.status_result = ChapterResult(
         "chapter-api",

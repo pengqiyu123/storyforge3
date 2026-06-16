@@ -60,6 +60,26 @@ class ChapterService:
         self.pipeline_logger = pipeline_logger
 
     async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
+        intent = await self._generate_plan(book_id, chapter_no)
+        self._advance_planned_state(book_id, chapter_no)
+        self._bump_current_chapter(book_id, chapter_no)
+        return intent
+
+    async def re_plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
+        current = self._workflow_status(book_id, chapter_no)
+        if current not in {
+            ChapterStatus.PLANNED,
+            ChapterStatus.DRAFTED,
+            ChapterStatus.NEEDS_REVIEW,
+            ChapterStatus.NEEDS_REVISION,
+            ChapterStatus.REVISED,
+        }:
+            raise ValueError(f"章节当前状态 {current.value} 不支持 re-plan")
+        if self._load_plan(book_id, chapter_no) is None:
+            raise ValueError(f"章节当前状态 {current.value} 没有可覆盖的计划")
+        return await self._generate_plan(book_id, chapter_no)
+
+    async def _generate_plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
         template = self.prompt_registry.get_latest("plan")
         prompt = self.prompt_registry.render_system_prompt(template, chapter_no=chapter_no)
         payload = {"book_id": book_id, "chapter_no": chapter_no, "context": self.storage.read_text(self.paths.context(book_id)) or ""}
@@ -67,8 +87,6 @@ class ChapterService:
         goal = self._extract_goal(outline)
         intent = ChapterIntent(chapter_no, goal, outline_node=outline)
         self._save_plan(book_id, intent)
-        self._advance_planned_state(book_id, chapter_no)
-        self._bump_current_chapter(book_id, chapter_no)
         return intent
 
     async def get_plan(self, book_id: str, chapter_no: int) -> ChapterIntent | None:
@@ -134,6 +152,35 @@ class ChapterService:
         # Segmented pipeline: auditing a draft/revised chapter advances to AUDITED
         # so the agent can drive stage-by-stage (draft -> audit -> revise -> approve).
         self._advance_audit_state(book_id, chapter_no)
+        return audit
+
+    async def re_audit(self, book_id: str, chapter_no: int) -> AuditResult:
+        text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
+        if text is None:
+            raise FileNotFoundError(f"chapter not found: {book_id} {chapter_no}")
+        if not text.strip():
+            raise ValueError("空章节请先使用 draft 管线生成正文")
+        current = self._workflow_status(book_id, chapter_no)
+        if current in (ChapterStatus.EMPTY, ChapterStatus.PLANNED):
+            raise ValueError(f"章节当前状态 {current.value} 没有正文可审计")
+        if current not in {
+            ChapterStatus.DRAFTED,
+            ChapterStatus.AUDITED,
+            ChapterStatus.APPROVED,
+            ChapterStatus.TRUTH_COMMITTED,
+            ChapterStatus.EXPORTED,
+            ChapterStatus.NEEDS_REVIEW,
+            ChapterStatus.NEEDS_REVISION,
+            ChapterStatus.REVISED,
+        }:
+            raise ValueError(f"章节当前状态 {current.value} 不支持 re-audit")
+        if current in (ChapterStatus.EXPORTED, ChapterStatus.TRUTH_COMMITTED):
+            self._rewind_to_approved(book_id, chapter_no)
+        mechanical = self.audit_runner.run_audit(chapter_no, text)
+        llm_audit = await self.run_llm_audit(book_id, chapter_no, text)
+        audit = _merge_llm_audit(mechanical, llm_audit)
+        self._save_audit_result(book_id, audit)
+        self._advance_re_audit_state(book_id, chapter_no, audit.passed)
         return audit
 
     async def run_llm_audit(self, book_id: str, chapter_no: int, text: str) -> LLMAuditResult:
@@ -242,12 +289,29 @@ class ChapterService:
 
     async def export(self, book_id: str, chapter_no: int, fmt: str = "tomato_txt") -> Path:
         current = self._workflow_status(book_id, chapter_no)
-        if current not in (ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED):
+        truth_exists = self.truth_store.load(book_id, chapter_no) is not None
+        if current not in (ChapterStatus.TRUTH_COMMITTED, ChapterStatus.EXPORTED) and not (current == ChapterStatus.APPROVED and truth_exists):
             raise ValueError("Truth 提取未完成，无法导出。请先批准并提交 truth。")
         path = await self.export_service.export_chapter(book_id, chapter_no, fmt)
         # Segmented pipeline: a successful export advances APPROVED -> EXPORTED.
         self._advance_export_state(book_id, chapter_no)
         return path
+
+    async def unexport(self, book_id: str, chapter_no: int) -> ChapterResult:
+        current = self._workflow_status(book_id, chapter_no)
+        if current != ChapterStatus.EXPORTED:
+            raise ValueError(f"章节当前状态 {current.value} 不支持 unexport")
+        self._rewind_to_approved(book_id, chapter_no)
+        text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no)) or ""
+        return ChapterResult(
+            book_id,
+            chapter_no,
+            ChapterStatus.APPROVED,
+            f"第{chapter_no}章",
+            text,
+            audit_result=self._status_audit_result(book_id, chapter_no, ChapterStatus.APPROVED, text),
+            error="unexported",
+        )
 
     async def get_status(self, book_id: str, chapter_no: int) -> ChapterResult | None:
         text = self.storage.read_text(self.paths.chapter_file(book_id, chapter_no))
@@ -426,6 +490,14 @@ class ChapterService:
         except InvalidTransitionError:
             return
 
+    def _advance_re_audit_state(self, book_id: str, chapter_no: int, passed: bool) -> None:
+        target = ChapterStatus.AUDITED if passed else ChapterStatus.NEEDS_REVISION
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        try:
+            machine.advance(book_id, chapter_no, target)
+        except InvalidTransitionError as exc:
+            raise ValueError(f"章节当前状态 {machine.current_status(book_id, chapter_no).value} 不支持 re-audit") from exc
+
     def _advance_approve_state(self, book_id: str, chapter_no: int) -> None:
         # Segmented: approve in the current service performs human approval and
         # truth extraction together, so the durable product state lands at
@@ -449,12 +521,30 @@ class ChapterService:
         except InvalidTransitionError:
             return
 
+    def _rewind_to_approved(self, book_id: str, chapter_no: int) -> None:
+        machine = ChapterStateMachine(self.paths.chapter_states(book_id))
+        current = machine.current_status(book_id, chapter_no)
+        if current == ChapterStatus.APPROVED:
+            return
+        if current not in (ChapterStatus.EXPORTED, ChapterStatus.TRUTH_COMMITTED):
+            raise ValueError(f"章节当前状态 {current.value} 不支持回退到 approved")
+        try:
+            machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
+        except InvalidTransitionError as exc:
+            raise ValueError(f"章节当前状态 {current.value} 不支持回退到 approved") from exc
+
     def _advance_export_state(self, book_id: str, chapter_no: int) -> None:
         # Segmented: a successful export advances TRUTH_COMMITTED -> EXPORTED.
         machine = ChapterStateMachine(self.paths.chapter_states(book_id))
         current = machine.current_status(book_id, chapter_no)
         if current == ChapterStatus.EXPORTED:
             return
+        if current == ChapterStatus.APPROVED and self.truth_store.load(book_id, chapter_no) is not None:
+            try:
+                machine.advance(book_id, chapter_no, ChapterStatus.TRUTH_COMMITTED)
+                current = ChapterStatus.TRUTH_COMMITTED
+            except InvalidTransitionError:
+                return
         if current != ChapterStatus.TRUTH_COMMITTED:
             return
         try:
@@ -676,6 +766,42 @@ def _audit_from_json(data: dict[str, Any], chapter_no: int) -> AuditResult:
         info=tuple(data.get("info", ())),
         rule_results=tuple(_rule_result_from_json(item) for item in data.get("rule_results", ())),
     )
+
+
+def _merge_llm_audit(mechanical: AuditResult, llm_result: LLMAuditResult) -> AuditResult:
+    llm_rules = tuple(_llm_issue_to_rule(index, issue) for index, issue in enumerate(llm_result.issues, start=1))
+    rule_results = (*mechanical.rule_results, *llm_rules)
+    blocking = tuple(result.rule_id for result in rule_results if not result.passed and result.severity == RuleSeverity.BLOCKING)
+    warnings = tuple(result.rule_id for result in rule_results if not result.passed and result.severity == RuleSeverity.WARNING)
+    info = tuple(result.rule_id for result in rule_results if not result.passed and result.severity == RuleSeverity.INFO)
+    return AuditResult(
+        chapter_no=mechanical.chapter_no,
+        passed=not blocking,
+        blocking_issues=blocking,
+        warnings=warnings,
+        info=info,
+        rule_results=rule_results,
+    )
+
+
+def _llm_issue_to_rule(index: int, issue) -> RuleResult:
+    severity = _llm_severity(issue.severity)
+    return RuleResult(
+        rule_id=f"llm_audit_{index}",
+        passed=False,
+        severity=severity,
+        category=RuleCategory.STRUCTURE,
+        message=issue.description,
+        detail={"dimension": issue.dimension, "suggestion": issue.suggestion},
+    )
+
+
+def _llm_severity(value: str) -> RuleSeverity:
+    if value == "critical":
+        return RuleSeverity.BLOCKING
+    if value == "info":
+        return RuleSeverity.INFO
+    return RuleSeverity.WARNING
 
 
 def _rule_result_from_json(data: dict[str, Any]) -> RuleResult:

@@ -14,14 +14,20 @@ class InvalidTransitionError(RuntimeError):
 TRANSITIONS = {
     ChapterStatus.EMPTY: {ChapterStatus.PLANNED},
     ChapterStatus.PLANNED: {ChapterStatus.DRAFTED, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.DRAFTED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.AUDITED: {ChapterStatus.APPROVED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.NEEDS_REVISION: {ChapterStatus.REVISED, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.REVISED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVIEW},
-    ChapterStatus.APPROVED: {ChapterStatus.TRUTH_COMMITTED},
-    ChapterStatus.TRUTH_COMMITTED: {ChapterStatus.EXPORTED},
-    ChapterStatus.EXPORTED: set(),
-    ChapterStatus.NEEDS_REVIEW: {ChapterStatus.PLANNED, ChapterStatus.DRAFTED, ChapterStatus.EMPTY},
+    ChapterStatus.DRAFTED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
+    ChapterStatus.AUDITED: {ChapterStatus.AUDITED, ChapterStatus.APPROVED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
+    ChapterStatus.NEEDS_REVISION: {ChapterStatus.AUDITED, ChapterStatus.REVISED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
+    ChapterStatus.REVISED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVISION, ChapterStatus.NEEDS_REVIEW},
+    ChapterStatus.APPROVED: {ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVISION, ChapterStatus.TRUTH_COMMITTED},
+    ChapterStatus.TRUTH_COMMITTED: {ChapterStatus.APPROVED, ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVISION, ChapterStatus.EXPORTED},
+    ChapterStatus.EXPORTED: {ChapterStatus.APPROVED, ChapterStatus.AUDITED, ChapterStatus.NEEDS_REVISION},
+    ChapterStatus.NEEDS_REVIEW: {
+        ChapterStatus.PLANNED,
+        ChapterStatus.DRAFTED,
+        ChapterStatus.AUDITED,
+        ChapterStatus.NEEDS_REVISION,
+        ChapterStatus.EMPTY,
+    },
 }
 
 

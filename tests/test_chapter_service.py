@@ -31,6 +31,25 @@ class MockClient:
         return {"fact_assertions": ["林默进入检测中心。"], "character_updates": [], "relationship_updates": [], "hook_updates": [], "irreversible_facts": [], "notes": []}
 
 
+class LifecycleMockClient(MockClient):
+    def __init__(self, *, plan_text: str = "本章目标：林默重新校准计划。", llm_issues: list[dict] | None = None) -> None:
+        self.plan_text = plan_text
+        self.llm_issues = llm_issues or []
+        self.calls: list[dict] = []
+
+    async def generate_text(self, task_name, system_prompt, user_payload, **kwargs):
+        self.calls.append({"task_name": task_name, "payload": user_payload})
+        if task_name == "chapter_plan":
+            return self.plan_text
+        return await super().generate_text(task_name, system_prompt, user_payload, **kwargs)
+
+    async def generate_json(self, task_name, system_prompt, user_payload, response_schema, **kwargs):
+        self.calls.append({"task_name": task_name, "payload": user_payload})
+        if task_name == "llm_audit":
+            return {"issues": self.llm_issues}
+        return await super().generate_json(task_name, system_prompt, user_payload, response_schema, **kwargs)
+
+
 class DraftLengthMockClient:
     def __init__(self, *, draft_text: str, normalized_text: str) -> None:
         self.draft_text = draft_text
@@ -391,6 +410,159 @@ def test_chapter_service_draft_reuses_persisted_plan(config: StoryForge3Config, 
     # A successful draft advances the chapter status PLANNED -> DRAFTED so the UI
     # (and audit/revise gating) recognizes a draft artifact exists.
     assert ChapterStateMachine(service.paths.chapter_states("lurenjia")).current_status("lurenjia", 8) == ChapterStatus.DRAFTED
+
+
+def test_chapter_service_re_plan_overwrites_plan_without_touching_text_or_state(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=LifecycleMockClient(plan_text="本章目标：林默改查夜灯仓。"))
+    chapter_path = service.paths.chapter_file("lurenjia", 8)
+    original_text = "已有正文保留。"
+    service.storage.write_text(chapter_path, original_text)
+    service.storage.write_json(
+        service.paths.plan_file("lurenjia", 8),
+        {
+            "chapter_no": 8,
+            "goal": "旧计划",
+            "outline_node": "旧节点",
+            "arc_context": "",
+            "must_keep": [],
+            "must_avoid": [],
+            "style_emphasis": [],
+        },
+    )
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    machine.advance("lurenjia", 8, ChapterStatus.PLANNED)
+    machine.advance("lurenjia", 8, ChapterStatus.DRAFTED)
+
+    intent = run(service.re_plan("lurenjia", 8))
+
+    assert intent.goal == "林默改查夜灯仓。"
+    assert service.storage.read_text(chapter_path) == original_text
+    assert machine.current_status("lurenjia", 8) == ChapterStatus.DRAFTED
+    assert json.loads(service.paths.plan_file("lurenjia", 8).read_text(encoding="utf-8"))["goal"] == "林默改查夜灯仓。"
+
+
+def test_chapter_service_re_plan_rejects_audited_and_empty(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=LifecycleMockClient())
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    machine.advance("lurenjia", 8, ChapterStatus.PLANNED)
+    machine.advance("lurenjia", 8, ChapterStatus.DRAFTED)
+    machine.advance("lurenjia", 8, ChapterStatus.AUDITED)
+    service.storage.write_json(service.paths.plan_file("lurenjia", 8), {"chapter_no": 8, "goal": "旧计划"})
+
+    try:
+        run(service.re_plan("lurenjia", 8))
+    except ValueError as exc:
+        assert "不支持 re-plan" in str(exc)
+    else:
+        raise AssertionError("expected audited re-plan rejection")
+
+    try:
+        run(service.re_plan("lurenjia", 9))
+    except ValueError as exc:
+        assert "不支持 re-plan" in str(exc)
+    else:
+        raise AssertionError("expected empty re-plan rejection")
+
+
+def test_chapter_service_re_audit_from_exported_preserves_truth_and_exports(config: StoryForge3Config, book_workspace: Path, sample_chapter_text: str) -> None:
+    service = ChapterService(config, llm=LifecycleMockClient())
+    chapter_no = 8
+    service.storage.write_text(service.paths.chapter_file("lurenjia", chapter_no), sample_chapter_text)
+    service.storage.write_text(service.paths.export_file("lurenjia", chapter_no, "tomato_txt"), "旧导出")
+    truth = TruthData(
+        chapter_no=chapter_no,
+        source="runtime_native",
+        fact_assertions=("旧 truth",),
+        character_updates=(),
+        relationship_updates=(),
+        hook_updates=(),
+        irreversible_facts=(),
+        notes=(),
+    )
+    service.truth_store.save("lurenjia", truth)
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    for status in (
+        ChapterStatus.PLANNED,
+        ChapterStatus.DRAFTED,
+        ChapterStatus.AUDITED,
+        ChapterStatus.APPROVED,
+        ChapterStatus.TRUTH_COMMITTED,
+        ChapterStatus.EXPORTED,
+    ):
+        machine.advance("lurenjia", chapter_no, status)
+
+    audit = run(service.re_audit("lurenjia", chapter_no))
+
+    assert audit.passed is True
+    assert machine.current_status("lurenjia", chapter_no) == ChapterStatus.AUDITED
+    assert [item["to"] for item in machine.history("lurenjia", chapter_no)[-2:]] == ["approved", "audited"]
+    assert service.truth_store.load("lurenjia", chapter_no) == truth
+    assert service.paths.export_file("lurenjia", chapter_no, "tomato_txt").read_text(encoding="utf-8") == "旧导出"
+
+
+def test_chapter_service_re_audit_failed_llm_lands_needs_revision(config: StoryForge3Config, book_workspace: Path, sample_chapter_text: str) -> None:
+    service = ChapterService(
+        config,
+        llm=LifecycleMockClient(
+            llm_issues=[
+                {
+                    "severity": "critical",
+                    "dimension": "情节逻辑",
+                    "description": "动机断裂",
+                    "suggestion": "补足承接",
+                }
+            ]
+        ),
+    )
+    chapter_no = 8
+    service.storage.write_text(service.paths.chapter_file("lurenjia", chapter_no), sample_chapter_text)
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    machine.advance("lurenjia", chapter_no, ChapterStatus.PLANNED)
+    machine.advance("lurenjia", chapter_no, ChapterStatus.DRAFTED)
+
+    audit = run(service.re_audit("lurenjia", chapter_no))
+
+    assert audit.passed is False
+    assert "llm_audit_1" in audit.blocking_issues
+    assert machine.current_status("lurenjia", chapter_no) == ChapterStatus.NEEDS_REVISION
+
+
+def test_chapter_service_unexport_keeps_truth_and_export_file_then_allows_reexport(config: StoryForge3Config, book_workspace: Path, sample_chapter_text: str) -> None:
+    service = ChapterService(config, llm=LifecycleMockClient())
+    chapter_no = 8
+    service.storage.write_text(service.paths.chapter_file("lurenjia", chapter_no), sample_chapter_text)
+    export_path = service.paths.export_file("lurenjia", chapter_no, "tomato_txt")
+    service.storage.write_text(export_path, "旧导出")
+    truth = TruthData(
+        chapter_no=chapter_no,
+        source="runtime_native",
+        fact_assertions=("旧 truth",),
+        character_updates=(),
+        relationship_updates=(),
+        hook_updates=(),
+        irreversible_facts=(),
+        notes=(),
+    )
+    service.truth_store.save("lurenjia", truth)
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    for status in (
+        ChapterStatus.PLANNED,
+        ChapterStatus.DRAFTED,
+        ChapterStatus.AUDITED,
+        ChapterStatus.APPROVED,
+        ChapterStatus.TRUTH_COMMITTED,
+        ChapterStatus.EXPORTED,
+    ):
+        machine.advance("lurenjia", chapter_no, status)
+
+    result = run(service.unexport("lurenjia", chapter_no))
+    reexported = run(service.export("lurenjia", chapter_no))
+
+    assert result.status == ChapterStatus.APPROVED
+    assert service.truth_store.load("lurenjia", chapter_no) == truth
+    assert export_path.exists()
+    assert reexported == export_path
+    assert machine.current_status("lurenjia", chapter_no) == ChapterStatus.EXPORTED
 
 
 def test_chapter_service_plan_updates_current_chapter(config: StoryForge3Config, book_workspace: Path) -> None:

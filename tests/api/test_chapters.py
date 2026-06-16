@@ -85,6 +85,27 @@ def test_chapter_audit_llm_and_normalize(client):
     assert normalized.json()["data"]["final_chars"] == 1200
 
 
+def test_chapter_lifecycle_replan_reaudit_unexport_endpoints(client, mock_chapter_service):
+    book_id = "chapter-api-lifecycle"
+    mock_chapter_service.status_result = ChapterResult(book_id, 2, ChapterStatus.DRAFTED, "第2章", "已有正文")
+
+    replanned = client.post(f"/api/books/{book_id}/chapters/2/re-plan")
+    reaudited = client.post(f"/api/books/{book_id}/chapters/2/re-audit")
+
+    mock_chapter_service.status_result = ChapterResult(book_id, 2, ChapterStatus.EXPORTED, "第2章", "已有正文")
+    unexported = client.post(f"/api/books/{book_id}/chapters/2/unexport")
+
+    assert replanned.status_code == 200
+    assert replanned.json()["data"]["goal"] == "重规划主线"
+    assert reaudited.status_code == 200
+    assert reaudited.json()["data"]["passed"] is True
+    assert unexported.status_code == 200
+    assert unexported.json()["data"]["status"] == "approved"
+    assert mock_chapter_service.re_plan_calls == 1
+    assert mock_chapter_service.re_audit_calls == 1
+    assert mock_chapter_service.unexport_calls == 1
+
+
 def test_chapter_revise_approve_export_run_and_status(client, mock_chapter_service):
     book_id = "chapter-api-run"
     client.post(f"/api/books/{book_id}/chapters/3/plan")

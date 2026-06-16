@@ -18,22 +18,24 @@ def allowed_actions(
     if chapter_status == ChapterStatus.EMPTY:
         return frozenset({"plan"})
     if chapter_status == ChapterStatus.PLANNED:
-        return frozenset({"draft", "plan"})
+        return frozenset({"draft", "plan", "re-plan"})
     if chapter_status == ChapterStatus.DRAFTED:
-        return frozenset({"audit"})
+        return frozenset({"audit", "re-audit", "re-plan"})
     if chapter_status == ChapterStatus.AUDITED:
-        return frozenset({"revise"} if audit_blocking > 0 else {"approve", "revise"})
+        return frozenset({"revise", "re-audit"} if audit_blocking > 0 else {"approve", "revise", "re-audit"})
+    if chapter_status == ChapterStatus.NEEDS_REVISION:
+        return frozenset({"revise", "re-audit", "re-plan"})
     if chapter_status == ChapterStatus.REVISED:
-        return frozenset({"audit"})
+        return frozenset({"audit", "re-audit", "re-plan"})
     if chapter_status == ChapterStatus.APPROVED:
-        actions = {"truth"}
+        actions = {"truth", "re-audit"}
         if truth_exists:
             actions.add("export")
         return frozenset(actions)
     if chapter_status == ChapterStatus.TRUTH_COMMITTED:
-        return frozenset({"export"})
+        return frozenset({"export", "re-audit"})
     if chapter_status == ChapterStatus.NEEDS_REVIEW:
-        return frozenset({"plan", "draft", "audit"})
+        return frozenset({"plan", "draft", "audit", "re-audit", "re-plan"})
     if chapter_status == ChapterStatus.EXPORTED:
-        return frozenset()
+        return frozenset({"unexport", "re-audit"})
     return frozenset()

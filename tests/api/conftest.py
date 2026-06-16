@@ -127,6 +127,9 @@ class FakeChapterService:
         self.last_update_text: tuple[str, int, str, str | None] | None = None
         self.status_result: ChapterResult | None = None
         self.last_run_id: str | None = None
+        self.re_plan_calls = 0
+        self.re_audit_calls = 0
+        self.unexport_calls = 0
 
     async def plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
         if self.raise_run_transition:
@@ -148,6 +151,20 @@ class FakeChapterService:
             goal="推进主线",
             outline_node="检测中心副楼出现异常回响",
             arc_context="林默开始主动调查",
+            must_keep=("林默谨慎",),
+            must_avoid=("解释设定",),
+            style_emphasis=("短句推进",),
+        )
+
+    async def re_plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
+        self.re_plan_calls += 1
+        text = self.status_result.text if self.status_result is not None else ""
+        self.status_result = ChapterResult(book_id, chapter_no, self.status_result.status if self.status_result is not None else ChapterStatus.PLANNED, f"第{chapter_no}章", text)
+        return ChapterIntent(
+            chapter_no=chapter_no,
+            goal="重规划主线",
+            outline_node="重规划节点",
+            arc_context="林默开始重新校准计划",
             must_keep=("林默谨慎",),
             must_avoid=("解释设定",),
             style_emphasis=("短句推进",),
@@ -186,6 +203,10 @@ class FakeChapterService:
         text = self.status_result.text if self.status_result is not None else "正文"
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.AUDITED, f"第{chapter_no}章", text, audit=audit)
         return audit
+
+    async def re_audit(self, book_id: str, chapter_no: int) -> AuditResult:
+        self.re_audit_calls += 1
+        return await self.audit(book_id, chapter_no)
 
     async def run_llm_audit(self, _book_id: str, _chapter_no: int, _text: str) -> LLMAuditResult:
         return LLMAuditResult(
@@ -261,6 +282,13 @@ class FakeChapterService:
         self.last_export_format = fmt
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "已确认正文")
         return Path("exports") / f"chapter-{chapter_no:04d}.{fmt}"
+
+    async def unexport(self, book_id: str, chapter_no: int) -> ChapterResult:
+        self.unexport_calls += 1
+        text = self.status_result.text if self.status_result is not None else "已确认正文"
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.APPROVED, f"第{chapter_no}章", text, error="unexported")
+        self.status_result = result
+        return result
 
     async def get_status(self, _book_id: str, _chapter_no: int) -> ChapterResult | None:
         return self.status_result

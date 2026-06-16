@@ -77,6 +77,9 @@ class ApiFakeChapterService:
         self.last_update_text: tuple[str, int, str, str | None] | None = None
         self.approve_calls = 0
         self.export_calls = 0
+        self.re_plan_calls = 0
+        self.re_audit_calls = 0
+        self.unexport_calls = 0
         self.truth_store = ApiFakeTruthStore()
 
     async def audit(self, book_id: str, chapter_no: int) -> AuditResult:
@@ -93,6 +96,10 @@ class ApiFakeChapterService:
         text = self.status_result.text if self.status_result is not None else "正文"
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.AUDITED, f"第{chapter_no}章", text, audit=audit)
         return audit
+
+    async def re_audit(self, book_id: str, chapter_no: int) -> AuditResult:
+        self.re_audit_calls += 1
+        return await self.audit(book_id, chapter_no)
 
     async def normalize_length(
         self,
@@ -149,6 +156,10 @@ class ApiFakeChapterService:
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.PLANNED, f"第{chapter_no}章", "")
         return ChapterIntent(chapter_no=chapter_no, goal="推进主线")
 
+    async def re_plan(self, book_id: str, chapter_no: int) -> ChapterIntent:
+        self.re_plan_calls += 1
+        return ChapterIntent(chapter_no=chapter_no, goal="重规划主线", outline_node="重规划节点")
+
     async def draft(
         self,
         book_id: str,
@@ -191,6 +202,13 @@ class ApiFakeChapterService:
         self.export_calls += 1
         self.status_result = ChapterResult(book_id, chapter_no, ChapterStatus.EXPORTED, f"第{chapter_no}章", "正文")
         return Path("exports") / f"chapter-{chapter_no:04d}.{fmt}"
+
+    async def unexport(self, book_id: str, chapter_no: int) -> ChapterResult:
+        self.unexport_calls += 1
+        text = self.status_result.text if self.status_result is not None else "正文"
+        result = ChapterResult(book_id, chapter_no, ChapterStatus.APPROVED, f"第{chapter_no}章", text, error="unexported")
+        self.status_result = result
+        return result
 
     async def run_full_pipeline(self, book_id: str, chapter_no: int, *, human_confirm=None) -> ChapterResult:
         if human_confirm is not None:

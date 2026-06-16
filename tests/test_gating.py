@@ -12,16 +12,18 @@ from storyforge3.state.gating import allowed_actions
         (ChapterStatus.EMPTY, RunStatus.RUNNING, 0, False, frozenset()),
         (ChapterStatus.AUDITED, RunStatus.WAITING_FOR_HUMAN, 0, False, frozenset()),
         (ChapterStatus.EMPTY, None, 0, False, frozenset({"plan"})),
-        (ChapterStatus.PLANNED, None, 0, False, frozenset({"draft", "plan"})),
-        (ChapterStatus.DRAFTED, None, 0, False, frozenset({"audit"})),
-        (ChapterStatus.AUDITED, None, 0, False, frozenset({"approve", "revise"})),
-        (ChapterStatus.AUDITED, None, 2, False, frozenset({"revise"})),
-        (ChapterStatus.REVISED, None, 0, False, frozenset({"audit"})),
-        (ChapterStatus.APPROVED, None, 0, False, frozenset({"truth"})),
-        (ChapterStatus.TRUTH_COMMITTED, None, 0, True, frozenset({"export"})),
-        (ChapterStatus.EXPORTED, None, 0, True, frozenset()),
-        (ChapterStatus.NEEDS_REVIEW, None, 0, False, frozenset({"plan", "draft", "audit"})),
+        (ChapterStatus.PLANNED, None, 0, False, frozenset({"draft", "plan", "re-plan"})),
+        (ChapterStatus.DRAFTED, None, 0, False, frozenset({"audit", "re-audit", "re-plan"})),
+        (ChapterStatus.AUDITED, None, 0, False, frozenset({"approve", "re-audit", "revise"})),
+        (ChapterStatus.AUDITED, None, 2, False, frozenset({"re-audit", "revise"})),
+        (ChapterStatus.REVISED, None, 0, False, frozenset({"audit", "re-audit", "re-plan"})),
+        (ChapterStatus.APPROVED, None, 0, False, frozenset({"re-audit", "truth"})),
+        (ChapterStatus.APPROVED, None, 0, True, frozenset({"re-audit", "truth", "export"})),
+        (ChapterStatus.TRUTH_COMMITTED, None, 0, True, frozenset({"export", "re-audit"})),
+        (ChapterStatus.EXPORTED, None, 0, True, frozenset({"re-audit", "unexport"})),
+        (ChapterStatus.NEEDS_REVIEW, None, 0, False, frozenset({"plan", "draft", "audit", "re-audit", "re-plan"})),
         (ChapterStatus.NEEDS_REVIEW, RunStatus.RUNNING, 0, False, frozenset()),
+        (ChapterStatus.NEEDS_REVISION, None, 0, False, frozenset({"revise", "re-audit", "re-plan"})),
     ],
 )
 def test_allowed_actions_matches_backend_gate_table(
@@ -35,7 +37,7 @@ def test_allowed_actions_matches_backend_gate_table(
 
 
 def test_allowed_actions_export_compat_for_approved_with_truth() -> None:
-    assert allowed_actions(ChapterStatus.APPROVED, None, 0, True) == frozenset({"truth", "export"})
+    assert allowed_actions(ChapterStatus.APPROVED, None, 0, True) == frozenset({"truth", "export", "re-audit"})
 
 
 @pytest.mark.parametrize(

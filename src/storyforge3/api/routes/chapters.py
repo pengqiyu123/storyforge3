@@ -431,6 +431,23 @@ async def plan_chapter(
     return ok(_intent_to_response(intent))
 
 
+@router.post("/{chapter_no}/re-plan")
+async def re_plan_chapter(
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    await _guard_action(book_id, chapter_no, "re-plan", service, registry, required=["re-plan"])
+    try:
+        intent = await service.re_plan(book_id, chapter_no)
+    except FileNotFoundError as exc:
+        raise chapter_not_found(book_id, chapter_no) from exc
+    except ValueError as exc:
+        raise state_error(str(exc)) from exc
+    return ok(_intent_to_response(intent))
+
+
 @router.get("/{chapter_no}/plan")
 async def get_chapter_plan(
     book_id: str,
@@ -484,6 +501,23 @@ async def audit_chapter(
         audit = await service.audit(book_id, chapter_no)
     except FileNotFoundError as exc:
         raise chapter_not_found(book_id, chapter_no) from exc
+    return ok(_audit_to_response(audit))
+
+
+@router.post("/{chapter_no}/re-audit")
+async def re_audit_chapter(
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    await _guard_action(book_id, chapter_no, "re-audit", service, registry, required=["re-audit"])
+    try:
+        audit = await service.re_audit(book_id, chapter_no)
+    except FileNotFoundError as exc:
+        raise chapter_not_found(book_id, chapter_no) from exc
+    except ValueError as exc:
+        raise state_error(str(exc)) from exc
     return ok(_audit_to_response(audit))
 
 
@@ -590,6 +624,21 @@ async def export_chapter(
     except ValueError as exc:
         raise state_error(str(exc)) from exc
     return ok(_path_to_response(path))
+
+
+@router.post("/{chapter_no}/unexport")
+async def unexport_chapter(
+    book_id: str,
+    chapter_no: int,
+    service: ChapterService = Depends(get_chapter_service),
+    registry: RunRegistry = Depends(get_run_registry),
+):
+    await _guard_action(book_id, chapter_no, "unexport", service, registry, required=["unexport"])
+    try:
+        result = await service.unexport(book_id, chapter_no)
+    except ValueError as exc:
+        raise state_error(str(exc)) from exc
+    return ok(_result_to_response(result))
 
 
 @router.get("/{chapter_no}/export-preview")
