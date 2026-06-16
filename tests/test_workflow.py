@@ -215,6 +215,10 @@ def test_workflow_exports_after_human_confirm(config, book_workspace: Path, samp
     result = run(workflow.run("lurenjia", 8, human_confirm=lambda _: True))
     assert result.status == ChapterStatus.EXPORTED
     assert result.truth is not None
+    assert (book_workspace / "plans" / "0008.json").exists()
+    assert (book_workspace / "chapters" / "0008.md").read_text(encoding="utf-8") == sample_chapter_text
+    assert (book_workspace / "state" / "chapter_states.json").exists()
+    assert not (book_workspace.parent / "state.json").exists()
     assert (book_workspace / "exports" / "chapter-0008.txt").exists()
 
 

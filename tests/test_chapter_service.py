@@ -127,6 +127,19 @@ def test_chapter_service_plan_draft_audit_and_run(config: StoryForge3Config, boo
     assert result.status == ChapterStatus.EXPORTED
 
 
+def test_chapter_service_approve_recovers_truth_retry_from_needs_review(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    service.storage.write_text(service.paths.chapter_file("lurenjia", 4), chinese_text(1200))
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    machine.force_needs_review("lurenjia", 4, "truth_extraction_failed: invalid JSON response")
+
+    result = run(service.approve("lurenjia", 4))
+
+    assert result.status == ChapterStatus.TRUTH_COMMITTED
+    assert service.truth_store.load("lurenjia", 4) is not None
+    assert machine.current_status("lurenjia", 4) == ChapterStatus.TRUTH_COMMITTED
+
+
 def test_chapter_service_update_text_writes_atomically_and_marks_needs_review(
     config: StoryForge3Config,
     book_workspace: Path,

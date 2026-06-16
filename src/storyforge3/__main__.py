@@ -140,7 +140,7 @@ def main() -> int:
         print(json.dumps(asdict(result), ensure_ascii=False, indent=2, default=str))
         return 0 if result.passed else 2
     if args.command == "status":
-        machine = ChapterStateMachine(Path(config.books_dir) / "state.json")
+        machine = ChapterStateMachine(paths.chapter_states(args.book_id))
         status = machine.current_status(args.book_id, args.chapter_no)
         print(json.dumps({"book_id": args.book_id, "chapter_no": args.chapter_no, "status": status.value}, ensure_ascii=False))
         return 0

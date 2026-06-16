@@ -435,6 +435,12 @@ class ChapterService:
         if current == ChapterStatus.TRUTH_COMMITTED:
             return
         try:
+            if current == ChapterStatus.NEEDS_REVIEW:
+                machine.advance(book_id, chapter_no, ChapterStatus.DRAFTED)
+                current = ChapterStatus.DRAFTED
+            if current == ChapterStatus.DRAFTED:
+                machine.advance(book_id, chapter_no, ChapterStatus.AUDITED)
+                current = ChapterStatus.AUDITED
             if current == ChapterStatus.AUDITED:
                 machine.advance(book_id, chapter_no, ChapterStatus.APPROVED)
                 current = ChapterStatus.APPROVED

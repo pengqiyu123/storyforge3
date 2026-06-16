@@ -30,6 +30,9 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 | **P-FIX-3（2026-06-15）** | `_post_with_retries` 加 RemoteProtocolError retry（P-FIX-3） | **完成** |
 | **P-UI-FIX-1（2026-06-16）** | 前端可见性修复：ChapterCard 接入 useChapterStatus + 挂载 AuditResultPanel/RevisionDiffPanel + GET /status 扩展 audit_result | **完成** |
 | **P-PROMPT-P0（2026-06-16）** | 提示词结构清理：删除 CHAPTER_DRAFT_PROMPT + 清理 3 个孤儿模板 + _SafeDict warning | **完成** |
+| **P-PROMPT-P1（2026-06-16）** | 提示词内容升级：compose-v2（6节写作铁律+看点密集度+断章规则+去AI味）+ llm-audit-v2（10维审计）+ plan-v2（结构化含钩子账）+ truth-extract hook_updates 增强 | **完成（commit ab6a230，已在远端）** |
+| **P-UI-FIX-2（2026-06-16）** | `useRunRecord` 增加 enabled 门禁，exported/empty 章节不再请求 `/run`，消除 404 console 噪音 | **完成（commit aee3191，待网络恢复推送）** |
+| **PROD-2（2026-06-16）** | 《别打了》第 4 章使用新提示词产出并导出；plan-v2 钩子账、truth hook action、正文/truth/export 验证通过 | **完成（本地产物，books/ 忽略不入库）** |
 
 ## P1 闭环声明
 
@@ -49,8 +52,8 @@ StoryForge3 是 AI Native 中文网文全流程生产工作台，覆盖建书、
 
 | 项 | 当前 |
 |----|------|
-| 后端测试 | **600 passed**（P-UI-FIX-1 + P-PROMPT-P0 后；commit `02be8d7`） |
-| 前端测试 | **111 passed**（P-UI-FIX-1 后） |
+| 后端测试 | **602 passed**（P-UI-FIX-2 + PROD-2 前置修复后） |
+| 前端测试 | **112 passed**（P-UI-FIX-2 后） |
 | Rust 测试 | 5 既有基线；本机无 cargo，需 CI 验证 |
 | Python lint | `ruff check .` clean |
 | Frontend build | `pnpm build` clean，仅 CodeMirror 大 chunk 警告 |

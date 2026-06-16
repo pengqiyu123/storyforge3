@@ -63,7 +63,6 @@ class ChapterWorkflow:
         self.truth_retriever = TruthRetriever(self.truth_store.database)
         self.truth_extractor = TruthExtractor(self.client, self.registry)
         self.formatter = PlatformFormatter()
-        self.state_machine = ChapterStateMachine(Path(config.books_dir) / "state.json")
         self.revision_recommender = RevisionModeRecommender()
 
     async def run(
@@ -84,6 +83,7 @@ class ChapterWorkflow:
             self._advance(book_id, chapter_no, ChapterStatus.PLANNED)
             try:
                 plan = await self.step_plan(ctx, chapter_no)
+                self._persist_plan(book_id, chapter_no, plan)
                 self._append_last_call(llm_calls)
                 self._log_run(
                     book_id,
@@ -117,6 +117,7 @@ class ChapterWorkflow:
             self._advance(book_id, chapter_no, ChapterStatus.DRAFTED)
             try:
                 text = await self.step_draft(plan, ctx, chapter_no)
+                self._persist_chapter_text(book_id, chapter_no, text)
                 self._append_last_call(llm_calls)
                 self._log_run(
                     book_id,
@@ -487,6 +488,7 @@ class ChapterWorkflow:
             self._advance(book_id, chapter_no, ChapterStatus.NEEDS_REVISION)
             try:
                 text = await self.step_revise(ctx, chapter_no, text, audit, revision_round)
+                self._persist_chapter_text(book_id, chapter_no, text)
                 self._append_last_call(llm_calls)
             except Exception as exc:
                 self._append_last_call(llm_calls)
@@ -535,11 +537,54 @@ class ChapterWorkflow:
         if self.truth_store.load(book_id, chapter_no) is None:
             raise TruthExtractionError(chapter_no, "Truth 提取未完成，无法导出。请重新运行 truth_extract 步骤。")
 
+    def _persist_plan(self, book_id: str, chapter_no: int, outline: str) -> None:
+        path = Path(self.config.books_dir) / book_id / "plans" / f"{chapter_no:04d}.json"
+        data = {
+            "chapter_no": chapter_no,
+            "goal": self._extract_goal(outline),
+            "outline_node": outline,
+            "arc_context": "",
+            "must_keep": [],
+            "must_avoid": [],
+            "style_emphasis": [],
+        }
+        self._atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=2))
+
+    def _persist_chapter_text(self, book_id: str, chapter_no: int, text: str) -> None:
+        path = Path(self.config.books_dir) / book_id / "chapters" / f"{chapter_no:04d}.md"
+        self._atomic_write_text(path, text)
+
+    @staticmethod
+    def _extract_goal(outline: str) -> str:
+        lines = [line.strip() for line in outline.splitlines()]
+        for index, line in enumerate(lines):
+            if line.startswith("### 本章目标"):
+                for candidate in lines[index + 1 :]:
+                    if candidate and not candidate.startswith("### "):
+                        return ChapterWorkflow._clean_goal_line(candidate)
+                break
+        for line in lines:
+            if line.startswith("本章目标") or line.startswith("一句话"):
+                return ChapterWorkflow._clean_goal_line(line)
+        return ChapterWorkflow._clean_goal_line(outline)
+
+    @staticmethod
+    def _clean_goal_line(value: str) -> str:
+        goal = value.strip()
+        for prefix in ("本章目标：", "本章目标:", "一句话：", "一句话:"):
+            if goal.startswith(prefix):
+                goal = goal[len(prefix) :].strip()
+        return goal[:50] or "推进主线"
+
+    def _state_machine(self, book_id: str) -> ChapterStateMachine:
+        return ChapterStateMachine(Path(self.config.books_dir) / book_id / "state" / "chapter_states.json")
+
     def _advance(self, book_id: str, chapter_no: int, status: ChapterStatus) -> None:
+        machine = self._state_machine(book_id)
         try:
-            self.state_machine.advance(book_id, chapter_no, status)
+            machine.advance(book_id, chapter_no, status)
         except InvalidTransitionError:
-            self.state_machine.force_needs_review(book_id, chapter_no, f"invalid_transition_to_{status.value}")
+            machine.force_needs_review(book_id, chapter_no, f"invalid_transition_to_{status.value}")
             raise
 
     def _needs_review(
@@ -553,7 +598,7 @@ class ChapterWorkflow:
         truth: TruthData | None,
         llm_calls: list[LLMCallRecord],
     ) -> ChapterResult:
-        self.state_machine.force_needs_review(book_id, chapter_no, error)
+        self._state_machine(book_id).force_needs_review(book_id, chapter_no, error)
         self._persist_diagnostics(book_id, chapter_no, text, audit, error)
         return ChapterResult(book_id, chapter_no, ChapterStatus.NEEDS_REVIEW, title, text, audit=audit, truth=truth, llm_calls=tuple(llm_calls), error=error)
 
@@ -581,6 +626,7 @@ class ChapterWorkflow:
 
     @staticmethod
     def _atomic_write_text(path: Path, text: str) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
         tmp = path.with_suffix(path.suffix + ".tmp")
         try:
             tmp.write_text(text, encoding="utf-8")
@@ -602,7 +648,7 @@ class ChapterWorkflow:
         return PipelineLogger.now_iso(), perf_counter()
 
     def _current_status_value(self, book_id: str, chapter_no: int) -> str:
-        return self.state_machine.current_status(book_id, chapter_no).value
+        return self._state_machine(book_id).current_status(book_id, chapter_no).value
 
     def _log_run(
         self,
