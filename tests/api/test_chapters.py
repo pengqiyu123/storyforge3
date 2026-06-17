@@ -35,11 +35,20 @@ def test_chapter_plan_and_draft_emit_sse_events(client, mock_chapter_service):
     assert "林默停在副楼门口" in draft.json()["data"]["text"]
     assert mock_chapter_service.last_draft_intent.goal == "进入副楼"
 
-    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 4))
-    assert [event["type"] for event in events] == ["pipeline:start", "llm:progress", "llm:chunk", "pipeline:complete"]
-    assert events[1]["detail"] == {"completed": 1, "total": 2}
-    assert events[2]["type"] == "llm:chunk"
-    assert events[2]["detail"]["text"] == "林默停在副楼门口。"
+    events = asyncio.run(_collect_replayed_events(sse_manager, book_id, 1, 6))
+    assert [event["type"] for event in events] == [
+        "pipeline:start",
+        "pipeline:complete",
+        "pipeline:start",
+        "llm:progress",
+        "llm:chunk",
+        "pipeline:complete",
+    ]
+    assert events[0]["stage"] == "plan"
+    assert events[2]["stage"] == "draft"
+    assert events[3]["detail"] == {"completed": 1, "total": 2}
+    assert events[4]["type"] == "llm:chunk"
+    assert events[4]["detail"]["text"] == "林默停在副楼门口。"
 
 
 def test_get_chapter_plan_returns_intent(client):

@@ -427,7 +427,13 @@ async def plan_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "plan", service, registry, required=["plan"])
-    intent = await service.plan(book_id, chapter_no)
+    await _publish_start(book_id, chapter_no, "plan", f"开始第 {chapter_no} 章规划")
+    try:
+        intent = await service.plan(book_id, chapter_no)
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "plan")
+        raise
+    await _publish_complete(book_id, chapter_no, "plan", {"goal": intent.goal})
     return ok(_intent_to_response(intent))
 
 
@@ -439,12 +445,19 @@ async def re_plan_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "re-plan", service, registry, required=["re-plan"])
+    await _publish_start(book_id, chapter_no, "plan", f"开始第 {chapter_no} 章重新规划")
     try:
         intent = await service.re_plan(book_id, chapter_no)
     except FileNotFoundError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "plan")
         raise chapter_not_found(book_id, chapter_no) from exc
     except ValueError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "plan")
         raise state_error(str(exc)) from exc
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "plan")
+        raise
+    await _publish_complete(book_id, chapter_no, "plan", {"goal": intent.goal})
     return ok(_intent_to_response(intent))
 
 
@@ -497,10 +510,16 @@ async def audit_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "audit", service, registry, required=["audit"])
+    await _publish_start(book_id, chapter_no, "audit", f"开始第 {chapter_no} 章审计")
     try:
         audit = await service.audit(book_id, chapter_no)
     except FileNotFoundError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
         raise chapter_not_found(book_id, chapter_no) from exc
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
+        raise
+    await _publish_complete(book_id, chapter_no, "audit", _summarize_audit(audit))
     return ok(_audit_to_response(audit))
 
 
@@ -512,12 +531,19 @@ async def re_audit_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "re-audit", service, registry, required=["re-audit"])
+    await _publish_start(book_id, chapter_no, "audit", f"开始第 {chapter_no} 章重新审计")
     try:
         audit = await service.re_audit(book_id, chapter_no)
     except FileNotFoundError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
         raise chapter_not_found(book_id, chapter_no) from exc
     except ValueError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
         raise state_error(str(exc)) from exc
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
+        raise
+    await _publish_complete(book_id, chapter_no, "audit", _summarize_audit(audit))
     return ok(_audit_to_response(audit))
 
 
@@ -528,7 +554,13 @@ async def llm_audit_chapter(
     req: LlmAuditRequest,
     service: ChapterService = Depends(get_chapter_service),
 ):
-    result = await service.run_llm_audit(book_id, chapter_no, req.text)
+    await _publish_start(book_id, chapter_no, "audit", f"开始第 {chapter_no} 章 LLM 审计")
+    try:
+        result = await service.run_llm_audit(book_id, chapter_no, req.text)
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "audit")
+        raise
+    await _publish_complete(book_id, chapter_no, "audit", {"passed": result.passed, "issue_count": len(result.issues)})
     return ok(_llm_audit_to_response(result))
 
 
@@ -539,14 +571,21 @@ async def normalize_chapter(
     req: NormalizeRequest,
     service: ChapterService = Depends(get_chapter_service),
 ):
-    del book_id, chapter_no
+    await _publish_start(book_id, chapter_no, "normalize", f"开始第 {chapter_no} 章长度规范化")
     if req.target_chars <= 0:
-        raise invalid_parameter("target_chars must be positive")
-    result = await service.normalize_length(
-        req.text,
-        target_chars=req.target_chars,
-        soft_ratio=req.soft_ratio,
-    )
+        message = "target_chars must be positive"
+        await _publish_error(book_id, chapter_no, message, "normalize")
+        raise invalid_parameter(message)
+    try:
+        result = await service.normalize_length(
+            req.text,
+            target_chars=req.target_chars,
+            soft_ratio=req.soft_ratio,
+        )
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "normalize")
+        raise
+    await _publish_complete(book_id, chapter_no, "normalize", {"action": result.action, "final_chars": result.final_chars})
     return ok(_normalize_to_response(result))
 
 
@@ -606,7 +645,13 @@ async def approve_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "approve", service, registry, required=["approve"])
-    result = await service.approve(book_id, chapter_no)
+    await _publish_start(book_id, chapter_no, "approve", f"开始第 {chapter_no} 章确认")
+    try:
+        result = await service.approve(book_id, chapter_no)
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "approve")
+        raise
+    await _publish_complete(book_id, chapter_no, "approve", _summarize_result(result))
     return ok(_result_to_response(result))
 
 
@@ -619,10 +664,16 @@ async def export_chapter(
     registry: RunRegistry = Depends(get_run_registry),
 ):
     await _guard_action(book_id, chapter_no, "export", service, registry, required=["export"])
+    await _publish_start(book_id, chapter_no, "export", f"开始第 {chapter_no} 章导出")
     try:
         path = await service.export(book_id, chapter_no, (req or ExportRequest()).fmt)
     except ValueError as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "export")
         raise state_error(str(exc)) from exc
+    except Exception as exc:
+        await _publish_error(book_id, chapter_no, str(exc), "export")
+        raise
+    await _publish_complete(book_id, chapter_no, "export", {"path": str(path)})
     return ok(_path_to_response(path))
 
 
