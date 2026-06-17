@@ -106,9 +106,49 @@ impl ProcessManager {
     pub fn stop(&self) -> anyhow::Result<()> {
         let mut guard = self.process.lock().expect("process mutex poisoned");
         if let Some(mut child) = guard.take() {
-            log::info!("Stopping Python API server (PID: {})", child.id());
-            let _ = child.kill();
-            let _ = child.wait();
+            let pid = child.id();
+            log::info!("Stopping Python API server (PID: {})", pid);
+
+            // On Windows, child.kill() only terminates the direct child, leaving
+            // grandchild processes (e.g. uvicorn reload workers) as orphans that
+            // keep the port open. Use taskkill /T /F to kill the entire process tree.
+            #[cfg(target_os = "windows")]
+            {
+                let kill_result = std::process::Command::new("taskkill")
+                    .args(["/PID", &pid.to_string(), "/T", "/F"])
+                    .output();
+
+                match kill_result {
+                    Ok(output) => {
+                        if output.status.success() {
+                            log::info!("Process tree killed via taskkill (PID: {})", pid);
+                        } else {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            log::warn!(
+                                "taskkill exited non-zero (PID: {}): stdout={}, stderr={}",
+                                pid,
+                                stdout.trim(),
+                                stderr.trim()
+                            );
+                            // Fallback: try direct kill
+                            let _ = child.kill();
+                        }
+                    }
+                    Err(error) => {
+                        log::warn!("Failed to run taskkill (PID: {}): {}", pid, error);
+                        // Fallback: try direct kill
+                        let _ = child.kill();
+                    }
+                }
+                let _ = child.wait();
+            }
+
+            #[cfg(not(target_os = "windows"))]
+            {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
         Ok(())
     }
