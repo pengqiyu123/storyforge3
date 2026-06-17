@@ -5,6 +5,8 @@ import type { Book } from "@/api/books";
 import type { ImportedProvider } from "@/api/providers";
 import { useBooks } from "@/hooks/useBooks";
 import { useHealth, useProviders } from "@/hooks/useHealth";
+import { useGlobalRunEvents } from "@/hooks/useGlobalRunEvents";
+import { LiveRunPanel } from "@/components/dashboard/LiveRunPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,21 +18,36 @@ export function DashboardPage() {
   const { data: books, isLoading: booksLoading } = useBooks();
   const health = useHealth();
   const providers = useProviders();
+  const { activeRuns } = useGlobalRunEvents();
   const count = books?.length ?? 0;
   const active = books?.filter((book) => book.status === "active").length ?? 0;
   const recentBooks = [...(books ?? [])].sort((a, b) => Date.parse(b.updated_at) - Date.parse(a.updated_at)).slice(0, 5);
   const actionBook = recentBooks.find((book) => book.status === "active") ?? recentBooks[0];
+  const hasLiveRuns = activeRuns.length > 0;
 
   return (
     <div className="space-y-7">
+      {/* Live run panel — replaces the hero when agent is active */}
+      {hasLiveRuns ? (
+        <section>
+          <div className="mb-3 flex items-center gap-2">
+            <Radio className="h-4 w-4 animate-pulse text-amber-200" />
+            <h2 className="text-sm font-medium text-amber-200">正在运行</h2>
+          </div>
+          <LiveRunPanel runs={activeRuns} />
+        </section>
+      ) : null}
+
       <section className="grid gap-5 xl:grid-cols-[1.35fr_0.85fr]">
-        <div className="rounded-lg border border-zinc-800 bg-zinc-950/70 p-8 shadow-2xl shadow-black/20">
+        <div className={hasLiveRuns ? "rounded-lg border border-zinc-800 bg-zinc-950/70 p-5 shadow-2xl shadow-black/20" : "rounded-lg border border-zinc-800 bg-zinc-950/70 p-8 shadow-2xl shadow-black/20"}>
           <p className="text-sm text-amber-200">StoryForge3 Studio</p>
-          <h1 className="mt-4 max-w-3xl text-4xl font-semibold leading-tight text-zinc-50">今天的生产状态，一眼看清。</h1>
-          <p className="mt-5 max-w-2xl text-sm leading-7 text-zinc-400">
-            这里汇总 provider、最近书籍和下一步动作。写作者只需要知道：现在能不能开写，下一本书该从哪里继续。
-          </p>
-          <div className="mt-7 flex flex-wrap gap-3">
+          <h1 className={hasLiveRuns ? "mt-2 max-w-3xl text-2xl font-semibold leading-tight text-zinc-50" : "mt-4 max-w-3xl text-4xl font-semibold leading-tight text-zinc-50"}>今天的生产状态，一眼看清。</h1>
+          {hasLiveRuns ? null : (
+            <p className="mt-5 max-w-2xl text-sm leading-7 text-zinc-400">
+              这里汇总 provider、最近书籍和下一步动作。写作者只需要知道：现在能不能开写，下一本书该从哪里继续。
+            </p>
+          )}
+          <div className={hasLiveRuns ? "mt-4 flex flex-wrap gap-3" : "mt-7 flex flex-wrap gap-3"}>
             <Button asChild>
               <Link to="/books">
                 打开我的小说
