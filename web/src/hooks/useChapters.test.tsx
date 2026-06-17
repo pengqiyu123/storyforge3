@@ -98,4 +98,80 @@ describe("useChapterUpdateText", () => {
     await waitFor(() => expect(result.current.data?.goal).toBe("进入副楼"));
     expect(queryClient.getQueryData(chapterPlanKey("lurenjia", 2))).toEqual(result.current.data);
   });
+
+  it("polls non-terminal chapter status every 5 seconds as SSE fallback", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            book_id: "lurenjia",
+            chapter_no: 2,
+            status: "drafted",
+            title: "第2章",
+            text: "正文",
+            actual_chars: 2
+          },
+          error: null
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const { result, unmount } = renderHook(() => useChapterStatus("lurenjia", 2), { wrapper });
+
+    await vi.waitFor(() => expect(result.current.data?.status).toBe("drafted"));
+    const initial = fetchMock.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(initial);
+
+    const afterFirst = fetchMock.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
+    });
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(afterFirst);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("stops polling once chapter status reaches a terminal state", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          ok: true,
+          data: {
+            book_id: "lurenjia",
+            chapter_no: 3,
+            status: "exported",
+            title: "第3章",
+            text: "完结",
+            actual_chars: 2
+          },
+          error: null
+        })
+      )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+    const { result, unmount } = renderHook(() => useChapterStatus("lurenjia", 3), { wrapper });
+
+    await vi.waitFor(() => expect(result.current.data?.status).toBe("exported"));
+    const initial = fetchMock.mock.calls.length;
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(20000);
+    });
+    expect(fetchMock.mock.calls.length).toBe(initial);
+
+    unmount();
+    vi.useRealTimers();
+  });
 });

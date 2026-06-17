@@ -112,6 +112,70 @@ describe("useRunEvents", () => {
       errorMessage: "批准超时"
     });
   });
+
+  it("reconnects with exponential backoff on stream error", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const queryClient = createQueryClient();
+    const wrapper = createWrapper(queryClient);
+
+    const { unmount } = renderHook(() => useRunEvents("biedale", 9), { wrapper });
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    act(() => {
+      FakeEventSource.instances[0].onerror?.();
+    });
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    act(() => {
+      FakeEventSource.instances[1].onerror?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(3);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("stops reconnecting after the max retry count", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const queryClient = createQueryClient();
+    const wrapper = createWrapper(queryClient);
+
+    const { unmount } = renderHook(() => useRunEvents("biedale", 10), { wrapper });
+
+    const delays = [1000, 2000, 4000, 8000, 16000];
+    for (const delay of delays) {
+      const current = FakeEventSource.instances[FakeEventSource.instances.length - 1];
+      act(() => {
+        current.onerror?.();
+      });
+      act(() => {
+        vi.advanceTimersByTime(delay);
+      });
+    }
+    expect(FakeEventSource.instances).toHaveLength(6);
+
+    act(() => {
+      FakeEventSource.instances[5].onerror?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(6);
+
+    unmount();
+    vi.useRealTimers();
+  });
 });
 
 function createQueryClient() {

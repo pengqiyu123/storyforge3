@@ -20,6 +20,9 @@ export interface PipelineEvent {
   detail?: Record<string, unknown> | null;
 }
 
+const SSE_MAX_RETRIES = 5;
+const SSE_BASE_DELAY_MS = 1000;
+
 export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?: (event: PipelineEvent) => void) {
   const queryClient = useQueryClient();
   // Keep the latest callback in a ref so the EventSource subscription is NOT torn down
@@ -32,24 +35,63 @@ export function usePipelineEvents(bookId?: string, chapterNo?: number, onEvent?:
     if (!bookId || !chapterNo || typeof EventSource === "undefined") {
       return undefined;
     }
-    const params = new URLSearchParams({ book_id: bookId, chapter_no: String(chapterNo) });
-    const source = new EventSource(resolveApiUrl(`/api/events?${params.toString()}`));
-    source.onmessage = (message) => {
-      const event = JSON.parse(message.data) as PipelineEvent;
-      onEventRef.current?.(event);
-      queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
-      if (event.type === "pipeline:error") {
-        toast.error(classifyPipelineErrorMessage(event));
-      } else if (event.type === "pipeline:complete") {
-        toast.success(event.message || `${event.stage ?? "管线"}完成`);
-      } else if (event.type === "pipeline:start") {
-        toast.info(event.message || `${event.stage ?? "管线"}已启动`);
+
+    let source: EventSource | null = null;
+    let retryCount = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const scheduleReconnect = () => {
+      if (cancelled || retryCount >= SSE_MAX_RETRIES) {
+        return;
       }
+      const delay = SSE_BASE_DELAY_MS * 2 ** retryCount;
+      retryCount += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (!cancelled) {
+          connect();
+        }
+      }, delay);
     };
-    source.onerror = () => {
-      source.close();
+
+    const connect = () => {
+      const params = new URLSearchParams({ book_id: bookId, chapter_no: String(chapterNo) });
+      const next = new EventSource(resolveApiUrl(`/api/events?${params.toString()}`));
+      source = next;
+      next.onmessage = (message) => {
+        retryCount = 0;
+        const event = JSON.parse(message.data) as PipelineEvent;
+        onEventRef.current?.(event);
+        queryClient.invalidateQueries({ queryKey: chapterStatusKey(bookId, chapterNo) });
+        if (event.type === "pipeline:error") {
+          toast.error(classifyPipelineErrorMessage(event));
+        } else if (event.type === "pipeline:complete") {
+          toast.success(event.message || `${event.stage ?? "管线"}完成`);
+        } else if (event.type === "pipeline:start") {
+          toast.info(event.message || `${event.stage ?? "管线"}已启动`);
+        }
+      };
+      next.onerror = () => {
+        next.close();
+        if (source === next) {
+          source = null;
+        }
+        scheduleReconnect();
+      };
     };
-    return () => source.close();
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      source?.close();
+      source = null;
+    };
   }, [bookId, chapterNo, queryClient]);
 }
 

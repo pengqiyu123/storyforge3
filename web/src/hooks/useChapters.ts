@@ -31,7 +31,14 @@ export function useChapterStatus(bookId: string, chapterNo: number, enabled = tr
       }
     },
     enabled: enabled && Boolean(bookId && chapterNo),
-    retry: false
+    retry: false,
+    // SSE 断线兜底：非终态章节每 5 秒轮询，终态（exported/empty/needs_review）不轮询
+    refetchInterval: (query) => {
+      if (!enabled) return false;
+      const status = query.state.data?.status;
+      const terminal = status === "exported" || status === "empty" || status === "needs_review";
+      return terminal ? false : 5000;
+    }
   });
 }
 

@@ -6,6 +6,8 @@ import { chapterStatusKey } from "@/hooks/useChapters";
 import { runRecordKey } from "@/hooks/useRunRecord";
 
 const DEFAULT_TARGET_STAGES = ["plan", "draft", "audit", "revise", "approve", "truth", "export"];
+const SSE_MAX_RETRIES = 5;
+const SSE_BASE_DELAY_MS = 1000;
 
 export interface RunEvent {
   type:
@@ -34,20 +36,59 @@ export function useRunEvents(bookId?: string, chapterNo?: number, onEvent?: (eve
     if (!bookId || !chapterNo || typeof EventSource === "undefined") {
       return undefined;
     }
-    const params = new URLSearchParams({ book_id: bookId, chapter_no: String(chapterNo) });
-    const source = new EventSource(resolveApiUrl(`/api/events?${params.toString()}`));
-    source.onmessage = (message) => {
-      const event = JSON.parse(message.data) as RunEvent;
-      if (event.book_id !== bookId || event.chapter_no !== chapterNo || !isRunViewerEvent(event.type)) {
+
+    let source: EventSource | null = null;
+    let retryCount = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    const scheduleReconnect = () => {
+      if (cancelled || retryCount >= SSE_MAX_RETRIES) {
         return;
       }
-      onEventRef.current?.(event);
-      applyRunEvent(queryClient, bookId, chapterNo, event);
+      const delay = SSE_BASE_DELAY_MS * 2 ** retryCount;
+      retryCount += 1;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (!cancelled) {
+          connect();
+        }
+      }, delay);
     };
-    source.onerror = () => {
-      source.close();
+
+    const connect = () => {
+      const params = new URLSearchParams({ book_id: bookId, chapter_no: String(chapterNo) });
+      const next = new EventSource(resolveApiUrl(`/api/events?${params.toString()}`));
+      source = next;
+      next.onmessage = (message) => {
+        retryCount = 0;
+        const event = JSON.parse(message.data) as RunEvent;
+        if (event.book_id !== bookId || event.chapter_no !== chapterNo || !isRunViewerEvent(event.type)) {
+          return;
+        }
+        onEventRef.current?.(event);
+        applyRunEvent(queryClient, bookId, chapterNo, event);
+      };
+      next.onerror = () => {
+        next.close();
+        if (source === next) {
+          source = null;
+        }
+        scheduleReconnect();
+      };
     };
-    return () => source.close();
+
+    connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      source?.close();
+      source = null;
+    };
   }, [bookId, chapterNo, queryClient]);
 }
 

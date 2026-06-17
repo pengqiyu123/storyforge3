@@ -164,6 +164,86 @@ describe("usePipelineEvents", () => {
     expect(toastMocks.success).not.toHaveBeenCalled();
     expect(toastMocks.error).not.toHaveBeenCalled();
   });
+
+  it("reconnects with exponential backoff on stream error", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+
+    const { unmount } = renderHook(() => usePipelineEvents("lurenjia", 7), { wrapper });
+
+    expect(FakeEventSource.instances).toHaveLength(1);
+
+    act(() => {
+      FakeEventSource.instances[0].onerror?.();
+    });
+    expect(FakeEventSource.instances[0].closed).toBe(true);
+
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    act(() => {
+      FakeEventSource.instances[1].onerror?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(3);
+
+    act(() => {
+      FakeEventSource.instances[2].onmessage?.(
+        new MessageEvent("message", {
+          data: JSON.stringify({ type: "pipeline:complete", book_id: "lurenjia", chapter_no: 7, stage: "draft", message: "ok" })
+        })
+      );
+    });
+
+    act(() => {
+      FakeEventSource.instances[2].onerror?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(4);
+
+    unmount();
+    vi.useRealTimers();
+  });
+
+  it("stops reconnecting after the max retry count", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: PropsWithChildren) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
+
+    const { unmount } = renderHook(() => usePipelineEvents("lurenjia", 8), { wrapper });
+
+    const delays = [1000, 2000, 4000, 8000, 16000];
+    for (const delay of delays) {
+      const current = FakeEventSource.instances[FakeEventSource.instances.length - 1];
+      act(() => {
+        current.onerror?.();
+      });
+      act(() => {
+        vi.advanceTimersByTime(delay);
+      });
+    }
+    expect(FakeEventSource.instances).toHaveLength(6);
+
+    act(() => {
+      FakeEventSource.instances[5].onerror?.();
+    });
+    act(() => {
+      vi.advanceTimersByTime(60000);
+    });
+    expect(FakeEventSource.instances).toHaveLength(6);
+
+    unmount();
+    vi.useRealTimers();
+  });
 });
 
 function createMockSSEEvent(
