@@ -159,6 +159,23 @@ def test_chapter_service_approve_recovers_truth_retry_from_needs_review(config: 
     assert machine.current_status("lurenjia", 4) == ChapterStatus.TRUTH_COMMITTED
 
 
+def test_chapter_service_approve_advances_revised_to_truth_committed(config: StoryForge3Config, book_workspace: Path) -> None:
+    service = ChapterService(config, llm=MockClient())
+    service.storage.write_text(service.paths.chapter_file("lurenjia", 4), chinese_text(1200))
+    machine = ChapterStateMachine(service.paths.chapter_states("lurenjia"))
+    machine.advance("lurenjia", 4, ChapterStatus.PLANNED)
+    machine.advance("lurenjia", 4, ChapterStatus.DRAFTED)
+    machine.advance("lurenjia", 4, ChapterStatus.AUDITED)
+    machine.advance("lurenjia", 4, ChapterStatus.NEEDS_REVISION)
+    machine.advance("lurenjia", 4, ChapterStatus.REVISED)
+
+    result = run(service.approve("lurenjia", 4))
+
+    assert result.status == ChapterStatus.TRUTH_COMMITTED
+    assert service.truth_store.load("lurenjia", 4) is not None
+    assert machine.current_status("lurenjia", 4) == ChapterStatus.TRUTH_COMMITTED
+
+
 def test_chapter_service_update_text_writes_atomically_and_marks_needs_review(
     config: StoryForge3Config,
     book_workspace: Path,
