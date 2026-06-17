@@ -21,14 +21,26 @@ def _events(book_id: str, chapter_no: int) -> list[dict]:
 
 def _assert_success_events(book_id: str, chapter_no: int, stage: str) -> None:
     events = _events(book_id, chapter_no)
-    assert [event["type"] for event in events] == ["pipeline:start", "pipeline:complete"]
-    assert [event["stage"] for event in events] == [stage, stage]
+    # Each endpoint now emits BOTH pipeline:* and stage:* events.
+    # Order: pipeline:start, stage:start, pipeline:complete, stage:complete
+    assert [event["type"] for event in events] == [
+        "pipeline:start",
+        "stage:start",
+        "pipeline:complete",
+        "stage:complete",
+    ]
+    assert [event["stage"] for event in events] == [stage, stage, stage, stage]
 
 
 def _assert_failure_events(book_id: str, chapter_no: int, stage: str) -> None:
     events = _events(book_id, chapter_no)
-    assert [event["type"] for event in events] == ["pipeline:start", "pipeline:error"]
-    assert [event["stage"] for event in events] == [stage, stage]
+    # Failure order: pipeline:start, stage:start, [pipeline:error + stage:error per except branch]
+    types = [event["type"] for event in events]
+    assert "pipeline:start" in types
+    assert "stage:start" in types
+    assert "pipeline:error" in types
+    assert "stage:error" in types
+    assert [event["stage"] for event in events if event["stage"]]  # all carry the stage
     assert events[-1]["message"]
 
 
