@@ -1,7 +1,16 @@
 @echo off
 echo [StoryForge3] Stopping dev server...
-taskkill /F /IM storyforge3.exe 2>nul
-taskkill /F /IM uvicorn.exe 2>nul
-taskkill /F /IM node.exe /FI "WINDOWTITLE eq *vite*" 2>nul
+
+REM Kill processes by port (kills the full process tree, including uvicorn workers)
+REM Port 8000 = backend API, Port 5173 = frontend Vite dev server
+for %%P in (8000 5173) do (
+    for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":%%P " ^| findstr "LISTENING"') do (
+        taskkill /PID %%a /T /F >nul 2>&1
+    )
+)
+
+REM Also kill the storyforge3 dev entrypoint if still running
+taskkill /F /IM storyforge3.exe >nul 2>&1
+
 echo [StoryForge3] Done.
-timeout /t 3 >nul
+ping -n 3 127.0.0.1 >nul
