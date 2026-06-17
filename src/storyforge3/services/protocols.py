@@ -68,6 +68,7 @@ class LLMServiceProtocol(Protocol):
         *,
         model: str | None = None,
         temperature: float | None = None,
+        max_json_retries: int = 1,
     ) -> dict: ...
 
     async def check_health(self) -> bool: ...

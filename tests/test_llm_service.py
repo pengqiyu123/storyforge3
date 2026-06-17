@@ -521,6 +521,34 @@ def test_generate_json_uses_schema_then_plain_json_fallback() -> None:
     assert "text" not in seen_payloads[-1]
 
 
+def test_generate_json_retries_invalid_json_with_previous_response() -> None:
+    seen_payloads: list[dict] = []
+    responses = [
+        httpx.Response(200, json=response_text('{"ok": ')),
+        httpx.Response(200, json=response_text('{"ok": true}')),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen_payloads.append(json.loads(request.content))
+        return responses.pop(0)
+
+    service = LLMService(
+        provider(
+            cc_endpoint_auto_select=False,
+            cc_endpoint_candidates=["https://primary.test/v1"],
+            cc_base_url_raw="https://primary.test/v1",
+            cc_usage_base_url=None,
+        ),
+        transport=httpx.MockTransport(handler),
+        sleep=lambda _: None,
+    )
+
+    assert run(service.generate_json("truth_extract", "system", {"x": 1}, {"type": "object"})) == {"ok": True}
+    retry_input = seen_payloads[1]["input"]
+    assert '"previous_invalid_response": "{\\"ok\\": "' in retry_input
+    assert "correction_instruction" in retry_input
+
+
 def test_generate_json_rejects_missing_required_schema_fields() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=response_text('{"role": "protagonist"}'))

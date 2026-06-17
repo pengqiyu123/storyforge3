@@ -13,14 +13,23 @@ def run(coro):
 
 
 class MockClient:
-    def __init__(self, payload=None, error: Exception | None = None) -> None:
+    def __init__(self, payload=None, error: Exception | None = None, text: str | None = None, text_error: Exception | None = None) -> None:
         self.payload = payload
         self.error = error
+        self.text = text
+        self.text_error = text_error
+        self.generate_json_kwargs = None
 
     async def generate_json(self, task_name, system_prompt, user_payload, response_schema, **kwargs):
+        self.generate_json_kwargs = kwargs
         if self.error:
             raise self.error
         return self.payload
+
+    async def generate_text(self, task_name, system_prompt, user_payload, **kwargs):
+        if self.text_error:
+            raise self.text_error
+        return self.text or ""
 
 
 def test_truth_extract_success(sample_chapter_text: str) -> None:
@@ -37,6 +46,7 @@ def test_truth_extract_success(sample_chapter_text: str) -> None:
     assert truth.chapter_no == 8
     assert truth.source == "runtime_native"
     assert truth.fact_assertions == ("林默进入副楼。",)
+    assert extractor.client.generate_json_kwargs["max_json_retries"] == 2
 
 
 def test_truth_extract_normalizes_string_update_items(sample_chapter_text: str) -> None:
@@ -57,8 +67,18 @@ def test_truth_extract_normalizes_string_update_items(sample_chapter_text: str) 
     assert truth.hook_updates == ({"summary": "副楼门后仍有异常声。"},)
 
 
+def test_truth_extract_uses_lenient_fallback(sample_chapter_text: str) -> None:
+    client = MockClient(error=RuntimeError("invalid JSON"), text='前缀 {"fact_assertions": ["林默救回了 truth。"]} 后缀')
+    extractor = TruthExtractor(client, create_default_registry())
+
+    truth = run(extractor.extract(8, sample_chapter_text))
+
+    assert truth.source == "runtime_lenient"
+    assert truth.fact_assertions == ("林默救回了 truth。",)
+
+
 def test_truth_extract_failure_raises(sample_chapter_text: str) -> None:
-    extractor = TruthExtractor(MockClient(error=RuntimeError("bad gateway")), create_default_registry())
+    extractor = TruthExtractor(MockClient(error=RuntimeError("bad gateway"), text_error=RuntimeError("fallback failed")), create_default_registry())
     with pytest.raises(TruthExtractionError):
         run(extractor.extract(8, sample_chapter_text))
 

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
+from storyforge3.llm.llm_service import _extract_json_object
 from storyforge3.models import TruthData
 from storyforge3.prompts.registry import PromptRegistry
 
@@ -33,6 +35,7 @@ class TruthExtractor:
             "chapter_text": chapter_text,
             "previous_truth": previous_truth.fact_assertions if previous_truth else (),
         }
+        source = "runtime_native"
         try:
             data = await self.client.generate_json(
                 "truth_extract",
@@ -40,18 +43,42 @@ class TruthExtractor:
                 payload,
                 self._schema(),
                 prompt_version=f"{template.prompt_id}:v{template.version}",
+                max_json_retries=2,
             )
-        except Exception as exc:
-            raise TruthExtractionError(chapter_no, str(exc)) from exc
-        return self._parse(chapter_no, data)
+        except Exception as primary_exc:
+            try:
+                data = await self._lenient_extract(chapter_no, chapter_text, system_prompt, previous_truth)
+                source = "runtime_lenient"
+            except Exception:
+                raise TruthExtractionError(chapter_no, str(primary_exc)) from primary_exc
+        return self._parse(chapter_no, data, source=source)
 
-    def _parse(self, chapter_no: int, data: dict) -> TruthData:
+    async def _lenient_extract(
+        self,
+        chapter_no: int,
+        chapter_text: str,
+        system_prompt: str,
+        previous_truth: TruthData | None,
+    ) -> dict:
+        payload = {
+            "chapter_no": chapter_no,
+            "chapter_text": chapter_text,
+            "previous_truth": previous_truth.fact_assertions if previous_truth else (),
+            "format_instruction": "请只输出一个合法 JSON object，不要 Markdown，不要解释。",
+        }
+        text = await self.client.generate_text("truth_extract", system_prompt, payload)
+        data = json.loads(_extract_json_object(text))
+        if not isinstance(data, dict):
+            raise ValueError("lenient extract returned non-object")
+        return data
+
+    def _parse(self, chapter_no: int, data: dict, *, source: str = "runtime_native") -> TruthData:
         facts = tuple(str(item) for item in data.get("fact_assertions", ()) if str(item).strip())
         if not facts:
             raise TruthExtractionError(chapter_no, "empty fact_assertions")
         return TruthData(
             chapter_no=chapter_no,
-            source="runtime_native",
+            source=source,
             fact_assertions=facts,
             character_updates=self._dict_items(data.get("character_updates", ())),
             relationship_updates=self._dict_items(data.get("relationship_updates", ())),

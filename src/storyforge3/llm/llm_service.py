@@ -268,33 +268,46 @@ class LLMService:
         *,
         model=None,
         timeout=None,
+        max_json_retries=1,
         **kwargs,
     ) -> dict:
-        try:
-            text = await self.generate_text(
-                task_name,
-                system_prompt,
-                user_payload,
-                model=model,
-                timeout=timeout,
-                response_schema=response_schema,
-                **kwargs,
-            )
-        except (LLMProviderError, ProviderUnavailableError):
-            fallback_payload = {
-                **dict(user_payload),
-                "response_schema": response_schema,
-                "format_instruction": "请只输出一个合法 JSON object，不要 Markdown，不要解释。",
-            }
-            text = await self.generate_text(task_name, system_prompt, fallback_payload, model=model, timeout=timeout, **kwargs)
-        try:
-            data = json.loads(_extract_json_object(text))
-        except json.JSONDecodeError as exc:
-            raise LLMResponseFormatError(f"{task_name}: invalid JSON response") from exc
-        if not isinstance(data, dict):
-            raise LLMResponseFormatError(f"{task_name}: JSON response is not an object")
-        _validate_response_schema(data, response_schema, task_name)
-        return data
+        last_error_text = ""
+        for attempt in range(max_json_retries + 1):
+            try:
+                payload = user_payload
+                call_kwargs = dict(kwargs)
+                if attempt == 0:
+                    call_kwargs["response_schema"] = response_schema
+                else:
+                    payload = {
+                        **dict(user_payload),
+                        "response_schema": response_schema,
+                        "format_instruction": "请只输出一个合法 JSON object，不要 Markdown，不要解释。",
+                        "previous_invalid_response": last_error_text,
+                        "correction_instruction": "上一轮响应无法解析为 JSON，请修正并只输出合法 JSON object。",
+                    }
+                text = await self.generate_text(task_name, system_prompt, payload, model=model, timeout=timeout, **call_kwargs)
+            except (LLMProviderError, ProviderUnavailableError):
+                if attempt >= max_json_retries:
+                    raise
+                fallback_payload = {
+                    **dict(user_payload),
+                    "response_schema": response_schema,
+                    "format_instruction": "请只输出一个合法 JSON object，不要 Markdown，不要解释。",
+                }
+                text = await self.generate_text(task_name, system_prompt, fallback_payload, model=model, timeout=timeout, **kwargs)
+            try:
+                data = json.loads(_extract_json_object(text))
+            except json.JSONDecodeError as exc:
+                last_error_text = text[:500]
+                if attempt >= max_json_retries:
+                    raise LLMResponseFormatError(f"{task_name}: invalid JSON response after {attempt + 1} attempts") from exc
+                continue
+            if not isinstance(data, dict):
+                raise LLMResponseFormatError(f"{task_name}: JSON response is not an object")
+            _validate_response_schema(data, response_schema, task_name)
+            return data
+        raise LLMResponseFormatError(f"{task_name}: exhausted JSON retries")
 
     async def _try_with_provider_fallback(self, payload: dict, *, task_name: str, timeout: int | None) -> dict:
         primary_provider = self._provider_for_payload(self.provider, payload)
